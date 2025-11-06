@@ -53,17 +53,37 @@ motion_processor:
   output_height: 640  # Increased from 512 → better quality for Telegram
   output_width: 640   # Increased from 512 → better quality for Telegram
   output_fps: 25
+  # Expression and motion control - for more expressive facial movements
+  flag_relative_motion: True  # Required for expression-friendly mode to work properly
+                               # Enables relative motion calculation for more natural expressions
+  driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
+                                         # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
+                                         # pose-friendly: emphasizes head pose movements
+  driving_multiplier: 1.0  # Motion intensity multiplier (1.0 = neutral, 1.2 = 20% more expressive, 1.5 = 50% more)
+                           # Reduced from 1.5 to 1.2 to preserve lip sync accuracy
+                           # Higher values (1.5+) can break lip synchronization with audio
+                           # 1.2 provides good balance: expressive movements without breaking lip sync
+  # Emotion configuration
+  default_emotion: 3  # Default emotion code if not specified in request (0-8)
+                      # 0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness,
+                      # 5: Neutral, 6: Sadness, 7: Surprise, 8: None (no emotion)
+                      # Default: 8 (None) - no emotion applied, uses audio-driven expressions only
+                      # Can be overridden per request via emotion parameter
 
 # ============================================================================
 # VIDEO QUALITY SETTINGS
 # These parameters control video encoding quality (Telegram optimized)
 # ============================================================================
 video_quality:
-  crf: 23              # Reduced from 25 → better quality with minimal speed impact
-                       # CRF 23 = good balance between quality and file size
-                       # Lower CRF = better quality (18=best, 28=medium)
+  crf: 18              # High quality encoding (matching DICE-Talk quality)
+                       # CRF 18 = excellent quality, close to lossless
+                       # Lower CRF = better quality (18=best, 23=medium, 28=low)
+                       # DICE-Talk uses CRF 17-18, MoDA now matches this quality
   codec: "libx264"     # H.264 video codec
-  preset: "faster"     # Encoding speed preset (faster/medium/slow)
+  preset: "medium"     # Encoding speed preset (faster/medium/slow)
+                       # "medium" = better quality than "faster", matches DICE-Talk default
+                       # Slower encoding but better compression efficiency
+                       # Options: ultrafast < superfast < veryfast < faster < fast < medium < slow < slower < veryslow
   pixelformat: "yuv420p"  # Pixel format for compatibility
   output_format: "mp4" # Output format
 

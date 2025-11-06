@@ -867,14 +867,65 @@ def handler(event):
             #   smooth=False, silent_audio_path=None, silent_mode="post"
             # Get optional parameters from input
             cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
-            emo = input_data.get("emo", 8)  # Emotion: 0-7 for specific emotions, 8 for neutral
             smooth = input_data.get("smooth", False)  # Smooth motion transitions
+            
+            # Emotion mapping: support both "emo" (int) and "emotion" (string or int)
+            # Emotion codes: 0=Anger, 1=Contempt, 2=Disgust, 3=Fear, 4=Happiness, 
+            #                 5=Neutral, 6=Sadness, 7=Surprise, 8=None
+            emotion_map = {
+                'anger': 0, 'angry': 0,
+                'contempt': 1,
+                'disgust': 2,
+                'fear': 3, 'afraid': 3,
+                'happiness': 4, 'happy': 4, 'joy': 4, 'joyful': 4,
+                'neutral': 5,
+                'sadness': 6, 'sad': 6,
+                'surprise': 7, 'surprised': 7,
+                'none': 8, 'no': 8
+            }
+            
+            # Get default emotion from config
+            try:
+                from utils.config_manager import get_config_manager
+                config_manager = get_config_manager()
+                primary_config = config_manager.load_primary_config()
+                default_emo = primary_config.get('motion_processor', {}).get('default_emotion', 8)
+            except Exception as e:
+                print(f"[WARN] Failed to load config for default_emotion: {e}, using 8")
+                default_emo = 8
+            if default_emo is None:
+                default_emo = 8
+            
+            # Try to get emotion from input (support both "emo" and "emotion" keys)
+            emo_input = input_data.get("emotion") or input_data.get("emo")
+            
+            if emo_input is None:
+                emo = default_emo
+            elif isinstance(emo_input, (int, float)):
+                # Numeric input: validate range
+                emo = int(emo_input)
+                if emo < 0 or emo > 8:
+                    print(f"[WARN] Invalid emotion code {emo}, using default {default_emo}")
+                    emo = default_emo
+            elif isinstance(emo_input, str):
+                # String input: convert to code
+                emo_lower = emo_input.lower().strip()
+                emo = emotion_map.get(emo_lower, default_emo)
+                if emo == default_emo and emo_lower not in emotion_map:
+                    print(f"[WARN] Unknown emotion '{emo_input}', using default {default_emo}")
+            else:
+                emo = default_emo
             
             # Create temporary directory for output (driven_sample needs save_dir, not file path)
             save_dir = tempfile.mkdtemp()
             
+            # Emotion name mapping for logging
+            emo_names = {0: 'Anger', 1: 'Contempt', 2: 'Disgust', 3: 'Fear', 
+                        4: 'Happiness', 5: 'Neutral', 6: 'Sadness', 7: 'Surprise', 8: 'None'}
+            emo_name = emo_names.get(emo, f'Unknown({emo})')
+            
             print(f"   Save dir: {save_dir}")
-            print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo}, smooth={smooth}")
+            print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo} ({emo_name}), smooth={smooth}")
             
             # Call driven_sample (returns path to generated video)
             output_path = pipe.driven_sample(
