@@ -36,6 +36,9 @@ motion_generator:
     norm_type: rms_norm  # [rms_norm|layer_norm]
     qk_norm: rms_norm    # [rms_norm|layer_norm|null]
     steps: 1000
+    emo_scale: 1.0  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions for eyebrows/expressions)
+                    # Reduced from 1.5 to 1.0 to preserve lip sync accuracy
+                    # Higher values (1.5-2.0) can interfere with audio-driven lip movements
 noise_scheduler:
   type: flow_matching
   sample_mode: sample

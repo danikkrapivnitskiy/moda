@@ -50,6 +50,7 @@ class TalkingHeadDiT(nn.Module):
         
         self.num_emo_class = 8
         self.emo_drop_prob = 0.1
+        self.emo_scale = kwargs.get('emo_scale', 1.0)  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
 
         self.num_heads = num_heads
         self.out_channels = output_dim
@@ -155,6 +156,8 @@ class TalkingHeadDiT(nn.Module):
         if cache:
             # emotion embedding
             emo_embeds = self.emo_embedder(emo, self.training)# (B, D)
+            # Scale emotion embeddings to control emotion strength
+            emo_embeds = emo_embeds * self.emo_scale
             audio_cond=audio_cond.mean(1)
             audio_cond_embeds = self.identity_embedder(audio_cond)
     

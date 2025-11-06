@@ -1344,11 +1344,11 @@ class MotionProcesser(object):
         I_p_pstbk_lst = []
         R_d_0, x_d_0_info = None, None
         flag_normalize_lip = self.cfg.flag_normalize_lip
-        flag_relative_motion = True #self.cfg.flag_relative_motion
+        flag_relative_motion = self.cfg.flag_relative_motion
         flag_source_video_eye_retargeting = self.cfg.flag_source_video_eye_retargeting
         lip_normalize_threshold = self.cfg.lip_normalize_threshold
         source_video_eye_retargeting_threshold = self.cfg.source_video_eye_retargeting_threshold
-        animation_region = 'lip' #self.cfg.animation_region
+        animation_region = self.cfg.animation_region
         driving_option = self.cfg.driving_option
         flag_stitching = self.cfg.flag_stitching
         flag_eye_retargeting = self.cfg.flag_eye_retargeting

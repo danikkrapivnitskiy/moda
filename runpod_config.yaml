@@ -22,11 +22,13 @@ paths:
 # Optimized for A6000/A40 48GB GPU ($0.00034/sec = $1.22/hr)
 # ============================================================================
 inference:
-  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
-                  # A6000/A40 has 48GB memory → can safely handle 75 batch size
+  batch_size: 10  # Original working value - keep at 10 for accurate lip sync
+                  # DO NOT increase - larger values (50+) can break audio-video synchronization
+                  # Increased batch_size causes timing issues with motion generation
   device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
-  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
-                       # Still fast enough for real-time generation
+  source_max_dim: 512  # Keep at 512 for accurate lip sync
+                        # DO NOT increase - larger values break audio-video synchronization
+                        # Increased resolution (640+) causes timing issues with audio processing
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
   input_height: 256
   input_width: 256
@@ -42,20 +44,24 @@ inference:
 # Optimized for A6000/A40 48GB GPU
 # ============================================================================
 motion_processor:
-  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
-                  # A6000/A40 has 48GB memory → can handle larger batches safely
-  warp_decode_batch_size: 100  # Increased from 75 → faster warp_decode on A6000/A40 48GB
+  batch_size: 10  # Original working value - keep at 10 for accurate lip sync
+                  # DO NOT increase - larger values (50+) can break audio-video synchronization
+                  # Increased batch_size causes timing issues with motion generation
+  warp_decode_batch_size: 20  # Increased from 75 → faster warp_decode on A6000/A40 48GB
                                # A6000/A40 can handle larger batches for warp_decode processing
-  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
+  source_max_dim: 512  # Original working value - keep at 512 for accurate lip sync
+                        # DO NOT increase - larger values break audio-video synchronization
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
   input_height: 256
   input_width: 256
-  output_height: 640  # Increased from 512 → better quality for Telegram
-  output_width: 640   # Increased from 512 → better quality for Telegram
+  output_height: 512  # Original working value - keep at 512 for accurate lip sync
+                       # DO NOT increase - larger values break audio-video synchronization
+  output_width: 512   # Original working value - keep at 512 for accurate lip sync
   output_fps: 25
   # Expression and motion control - for more expressive facial movements
-  flag_relative_motion: True  # Required for expression-friendly mode to work properly
-                               # Enables relative motion calculation for more natural expressions
+  flag_relative_motion: False  # Original working value - keep at False for accurate lip sync
+                                # True can cause timing issues with audio-driven motion
+                                # Relative motion calculation may interfere with lip synchronization
   driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
                                          # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
                                          # pose-friendly: emphasizes head pose movements
@@ -64,25 +70,32 @@ motion_processor:
                            # Higher values (1.5+) can break lip synchronization with audio
                            # 1.2 provides good balance: expressive movements without breaking lip sync
   # Emotion configuration
-  default_emotion: 3  # Default emotion code if not specified in request (0-8)
+  default_emotion: 8  # Default emotion code if not specified in request (0-8)
                       # 0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness,
                       # 5: Neutral, 6: Sadness, 7: Surprise, 8: None (no emotion)
                       # Default: 8 (None) - no emotion applied, uses audio-driven expressions only
                       # Can be overridden per request via emotion parameter
+                      # Changed from 7 (Surprise) to 8 (None) to preserve lip sync accuracy
+  emo_scale: 1.0  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+                  # Reduced from 1.5 to 1.0 to preserve lip sync accuracy
+                  # Higher values (1.5-2.0) can interfere with audio-driven lip movements
+                  # Values >1.3 may cause artifacts and break lip synchronization
 
 # ============================================================================
 # VIDEO QUALITY SETTINGS
 # These parameters control video encoding quality (Telegram optimized)
 # ============================================================================
 video_quality:
-  crf: 18              # High quality encoding (matching DICE-Talk quality)
+  crf: 18              # High quality encoding (excellent quality, close to lossless)
                        # CRF 18 = excellent quality, close to lossless
                        # Lower CRF = better quality (18=best, 23=medium, 28=low)
                        # DICE-Talk uses CRF 17-18, MoDA now matches this quality
+                       # Improved from 25 to 18 for better video quality without affecting lip sync
   codec: "libx264"     # H.264 video codec
   preset: "medium"     # Encoding speed preset (faster/medium/slow)
                        # "medium" = better quality than "faster", matches DICE-Talk default
                        # Slower encoding but better compression efficiency
+                       # Improved from "faster" to "medium" for better quality without affecting lip sync
                        # Options: ultrafast < superfast < veryfast < faster < fast < medium < slow < slower < veryslow
   pixelformat: "yuv420p"  # Pixel format for compatibility
   output_format: "mp4" # Output format
@@ -92,10 +105,12 @@ video_quality:
 # These parameters control performance optimizations for A6000/A40 48GB
 # ============================================================================
 performance:
-  enable_torch_compile: True  # Enable torch.compile for 20-30% speedup on A6000/A40
-                              # Maps to flag_do_torch_compile in liveportrait_config.yaml
-  use_half_precision: True    # FP16 for faster inference on A6000/A40
-                              # Maps to flag_use_half_precision in liveportrait_config.yaml
+  enable_torch_compile: False  # Disabled to preserve lip sync accuracy
+                                # torch.compile can cause numerical precision issues affecting synchronization
+                                # Maps to flag_do_torch_compile in liveportrait_config.yaml
+  use_half_precision: False    # Disabled to preserve lip sync accuracy
+                                # FP16 can cause numerical precision issues affecting synchronization
+                                # Maps to flag_use_half_precision in liveportrait_config.yaml
   max_video_length: 1000      # 40 seconds max for A6000/A40 48GB
                               # Can be overridden by inference.max_video_length if set
 

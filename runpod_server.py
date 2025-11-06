@@ -890,11 +890,13 @@ def handler(event):
                 config_manager = get_config_manager()
                 primary_config = config_manager.load_primary_config()
                 default_emo = primary_config.get('motion_processor', {}).get('default_emotion', 8)
+                print(f"[INFO] Loaded default_emotion from config: {default_emo}")
             except Exception as e:
                 print(f"[WARN] Failed to load config for default_emotion: {e}, using 8")
                 default_emo = 8
             if default_emo is None:
                 default_emo = 8
+                print(f"[WARN] default_emotion was None, using fallback: 8")
             
             # Try to get emotion from input (support both "emo" and "emotion" keys)
             emo_input = input_data.get("emotion") or input_data.get("emo")

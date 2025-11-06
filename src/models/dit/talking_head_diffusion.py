@@ -42,6 +42,7 @@ class MotionDiffusion(nn.Module):
         self.device = device
 
         # init motion generator
+        emo_scale = motion_gen_params.get('emo_scale', 1.0)  # Emotion strength multiplier (default: 1.0)
         self.talking_head_dit = TalkingHeadDiT_models[config.model_name](
             input_dim           = motion_gen_params.input_dim * 2,
             output_dim          = motion_gen_params.output_dim,
@@ -54,7 +55,8 @@ class MotionDiffusion(nn.Module):
             audio_cond_dim      = audio_proj_params.audio_cond_dim,
             norm_type           = motion_gen_params.norm_type,
             qk_norm             = motion_gen_params.qk_norm,
-            exp_dim             = motion_gen_params.exp_dim
+            exp_dim             = motion_gen_params.exp_dim,
+            emo_scale           = emo_scale
         )
         self.input_dim = motion_gen_params.input_dim
         self.exp_dim = motion_gen_params.exp_dim
