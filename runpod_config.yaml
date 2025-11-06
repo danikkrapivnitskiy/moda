@@ -53,6 +53,15 @@ motion_processor:
   output_height: 640  # Increased from 512 → better quality for Telegram
   output_width: 640   # Increased from 512 → better quality for Telegram
   output_fps: 25
+  # Expression and motion control
+  flag_relative_motion: True  # Required for expression-friendly mode to work properly
+                               # Enables relative motion calculation for more natural expressions
+  driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
+                                       # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
+                                       # pose-friendly: emphasizes head pose movements
+  driving_multiplier: 1.5  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
+                           # Increased from 1.0 to 1.5 for more visible facial movements
+                           # Higher values make eyes, eyebrows, and lips more animated
 
 # ============================================================================
 # VIDEO QUALITY SETTINGS
@@ -111,4 +120,30 @@ resource_limits:
   max_audio_size_mb: 50
   min_disk_space_gb: 10
   audio_pad_duration: 2.0
+
+# ============================================================================
+# EMOTION CONFIGURATION
+# DICE-Talk emotion integration settings
+# ============================================================================
+emotion:
+  # Enhanced emotion support (DICE-Talk integration)
+  # Supports two input modes:
+  # 1. Emotion code (int): 0-8 for basic emotions, 8 for neutral
+  #    0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness, 
+  #    5: Neutral, 6: Sadness, 7: Surprise, 8: None
+  # 2. Emotion feature file (str): path to .npy file from DICE-Talk examples
+  #    Example: "examples/emo/happy.npy" for enhanced emotion control
+  #    Provides 64-code emotion control with VQ-VAE codebook and attention-based retrieval
+  use_enhanced_emotion: false  # Enable DICE-Talk emotion adapter (opt-in, default: false)
+  emotion_model_path: null     # Path to emo_model.pth checkpoint (optional, auto-detected if null)
+                                # Auto-searches in standard locations:
+                                # - /workspace/checkpoints/DICE-Talk/emo_model.pth (persistent storage)
+                                # - /app/models_cache/checkpoints/DICE-Talk/emo_model.pth (pre-built cache)
+                                # - checkpoints/DICE-Talk/emo_model.pth (local development)
+                                # Model is automatically downloaded during Docker build from:
+                                # krapiunitski/moda-emotion-model (lightweight, ~286 MB)
+  emotion_examples_dir: "examples/emo"  # Directory with DICE-Talk emotion .npy files
+  default_emotion: 8  # Default emotion code if not specified or file not found (8 = neutral/None)
+  # Note: Enhanced emotions require emo_model.pth checkpoint and .npy example files
+  # If not available, falls back to simple emotion codes (0-8)
 

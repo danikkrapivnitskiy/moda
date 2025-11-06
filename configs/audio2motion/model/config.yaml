@@ -36,6 +36,11 @@ motion_generator:
     norm_type: rms_norm  # [rms_norm|layer_norm]
     qk_norm: rms_norm    # [rms_norm|layer_norm|null]
     steps: 1000
+    # Enhanced emotion configuration (DICE-Talk integration)
+    use_enhanced_emotion: false  # Enable DICE-Talk emotion adapter (opt-in, default: false)
+    emotion_model_path: null    # Path to emo_model.pth checkpoint (optional, auto-detected if null)
+                                 # Auto-searches: /workspace/checkpoints, /app/models_cache, checkpoints/
+    emotion_examples_dir: null  # Directory with emotion .npy files (e.g., "examples/emo")
 noise_scheduler:
   type: flow_matching
   sample_mode: sample

@@ -271,6 +271,101 @@ def safe_base64_decode(data, field_name):
     except Exception as e:
         raise ValueError(f"Invalid base64 for {field_name}: {str(e)}")
 
+def process_emotion_input(emotion_input, temp_dir):
+    """
+    Process emotion input from RunPod request.
+    
+    Supports two input modes:
+    1. Integer code (0-8): Basic emotions
+       - 0: Anger, 1: Contempt, 2: Disgust, 3: Fear
+       - 4: Happiness, 5: Neutral, 6: Sadness, 7: Surprise
+       - 8: None (neutral, default)
+    2. Base64 encoded .npy file: Enhanced DICE-Talk emotion features
+       - Upload .npy file from DICE-Talk examples/emo/ directory
+       - Provides 64-code emotion control with attention-based retrieval
+    
+    Args:
+        emotion_input: int, str (base64 .npy), or None
+        temp_dir: temporary directory for files
+    
+    Returns:
+        Processed emotion (int or str path to .npy)
+    """
+    if emotion_input is None:
+        return 8  # Default neutral
+    
+    if isinstance(emotion_input, int):
+        # Validate emotion code
+        if 0 <= emotion_input <= 8:
+            return emotion_input
+        else:
+            print(f"[WARN] Invalid emotion code {emotion_input}, using neutral (8)")
+            return 8
+    
+    if isinstance(emotion_input, str):
+        # Check if it's base64 encoded .npy file
+        try:
+            # Try to decode base64
+            emotion_data = base64.b64decode(emotion_input)
+            
+            # Verify it's a valid .npy file (starts with magic bytes)
+            if emotion_data[:6] == b'\x93NUMPY':
+                # Save to temp file
+                emotion_path = os.path.join(temp_dir, "emotion_features.npy")
+                with open(emotion_path, 'wb') as f:
+                    f.write(emotion_data)
+                print(f"[INFO] Saved emotion features to {emotion_path}")
+                return emotion_path
+            else:
+                # Not a .npy file, might be emotion name string
+                emotion_name = emotion_input.lower()
+                emotion_code_map = {
+                    'anger': 0, 'angry': 0,
+                    'contempt': 1,
+                    'disgust': 2, 'disgusted': 2,
+                    'fear': 3,
+                    'happiness': 4, 'happy': 4,
+                    'neutral': 5,
+                    'sadness': 6, 'sad': 6,
+                    'surprise': 7, 'surprised': 7,
+                    'none': 8
+                }
+                if emotion_name in emotion_code_map:
+                    return emotion_code_map[emotion_name]
+                else:
+                    print(f"[WARN] Unknown emotion string: {emotion_input}, using neutral")
+                    return 8
+        except Exception as e:
+            # Not base64, might be file path or emotion name
+            if emotion_input.endswith('.npy'):
+                # File path
+                if os.path.exists(emotion_input):
+                    return emotion_input
+                else:
+                    print(f"[WARN] Emotion file not found: {emotion_input}, using neutral")
+                    return 8
+            else:
+                # Try as emotion name
+                emotion_name = emotion_input.lower()
+                emotion_code_map = {
+                    'anger': 0, 'angry': 0,
+                    'contempt': 1,
+                    'disgust': 2, 'disgusted': 2,
+                    'fear': 3,
+                    'happiness': 4, 'happy': 4,
+                    'neutral': 5,
+                    'sadness': 6, 'sad': 6,
+                    'surprise': 7, 'surprised': 7,
+                    'none': 8
+                }
+                if emotion_name in emotion_code_map:
+                    return emotion_code_map[emotion_name]
+                else:
+                    print(f"[WARN] Failed to process emotion input: {e}, using neutral")
+                    return 8
+    
+    return 8
+
 def load_runpod_config():
     """Load RunPod configuration from YAML file"""
     global runpod_config
@@ -471,6 +566,42 @@ def ensure_models_downloaded():
         target_path=pretrain_dir,
         required_subdirs=required_subdirs
     )
+    
+    # Emotion model: DICE-Talk emotion adapter (optional, ~286 MB)
+    # Auto-download if not found in standard locations
+    emotion_checkpoints_dir = "/workspace/checkpoints/DICE-Talk"
+    emotion_model_path = os.path.join(emotion_checkpoints_dir, "emo_model.pth")
+    emotion_repo = f'{HUGGINGFACE_USERNAME}/moda-emotion-model'
+    
+    if not os.path.exists(emotion_model_path):
+        # Check pre-built cache first
+        prebuilt_emotion_path = "/app/models_cache/checkpoints/DICE-Talk/emo_model.pth"
+        if os.path.exists(prebuilt_emotion_path):
+            print("[INFO] Copying emotion model from pre-built cache...")
+            os.makedirs(emotion_checkpoints_dir, exist_ok=True)
+            shutil.copy2(prebuilt_emotion_path, emotion_model_path)
+            print("[OK] Emotion model copied from pre-built cache")
+        else:
+            # Try to download from HuggingFace (optional, non-fatal)
+            try:
+                from huggingface_hub import hf_hub_download
+                print("[INFO] Downloading emotion model from HuggingFace (optional)...")
+                print(f"       Repository: {emotion_repo} (~286 MB)")
+                os.makedirs(emotion_checkpoints_dir, exist_ok=True)
+                hf_hub_download(
+                    repo_id=emotion_repo,
+                    filename="emo_model.pth",  # Direct file in root, no subdirectory
+                    local_dir=emotion_checkpoints_dir,
+                    local_dir_use_symlinks=False,
+                    token=hf_token
+                )
+                print("[OK] Emotion model downloaded")
+            except Exception as e:
+                print(f"[WARN] Failed to download emotion model: {e}")
+                print("       Enhanced emotions will be disabled, using simple emotion codes")
+                print(f"       You can manually download from: {emotion_repo}/emo_model.pth")
+    else:
+        print("[OK] Emotion model found in persistent storage")
     
     print("[OK] All models are ready")
 
@@ -862,12 +993,16 @@ def handler(event):
             # Process video using driven_sample
             start = time.time()
             
+            # Create temporary directory for processing (needed for emotion .npy files)
+            temp_dir = tempfile.mkdtemp()
+            
             # driven_sample parameters (method signature from moda_test.py line 213):
             # - image_path, audio_path, cfg_scale=1., emo=8, save_dir=None, 
             #   smooth=False, silent_audio_path=None, silent_mode="post"
             # Get optional parameters from input
             cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
-            emo = input_data.get("emo", 8)  # Emotion: 0-7 for specific emotions, 8 for neutral
+            emo_input = input_data.get("emo", 8)  # Emotion: 0-8 for codes, or base64 .npy string
+            emo = process_emotion_input(emo_input, temp_dir)  # Process emotion (int code or .npy file)
             smooth = input_data.get("smooth", False)  # Smooth motion transitions
             
             # Create temporary directory for output (driven_sample needs save_dir, not file path)
@@ -939,13 +1074,20 @@ def handler(event):
                     except Exception as e:
                         print(f"[WARN] Failed to cleanup {name} at {path}: {e}")
             
-            # Cleanup temporary save directory
+            # Cleanup temporary directories
             if 'save_dir' in locals() and save_dir and os.path.exists(save_dir):
                 try:
                     shutil.rmtree(save_dir)
                     print(f"[DEBUG] Cleaned up save directory: {save_dir}")
                 except Exception as e:
                     print(f"[WARN] Failed to cleanup save_dir at {save_dir}: {e}")
+            
+            if 'temp_dir' in locals() and temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"[DEBUG] Cleaned up temp directory: {temp_dir}")
+                except Exception as e:
+                    print(f"[WARN] Failed to cleanup temp_dir at {temp_dir}: {e}")
         
     except Exception as e:
         error_msg = str(e)

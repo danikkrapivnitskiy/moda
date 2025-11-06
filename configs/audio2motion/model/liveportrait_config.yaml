@@ -50,7 +50,7 @@ preset: "faster"
 # driving params
 flag_do_torch_compile: False
 flag_use_half_precision: True
-flag_relative_motion: False
+flag_relative_motion: True  # Required for expression-friendly mode to work properly
 flag_normalize_lip: False
 flag_source_video_eye_retargeting: False
 flag_eye_retargeting: False
@@ -62,7 +62,7 @@ source_video_eye_retargeting_threshold: 0.18 # threshold for eyes retargeting if
 anchor_frame: 0 # TO IMPLEMENT
 
 driving_option: "expression-friendly" # "expression-friendly" or "pose-friendly"
-driving_multiplier: 1.0 # be used only when driving_option is "expression-friendly"
+driving_multiplier: 1.5  # Increased from 1.0 to 1.5 for more expressive facial movements (eyes, eyebrows, lips)
 lib_multiplier: 1.0
 driving_smooth_observation_variance: 3e-7 # the larger the number, the smoother the animated video; too much smoothness would result in loss of motion accuracy
 animation_region: "all" #["exp", "pose", "lip", "eyes", "all"], the region where the animation was performed, "exp" means the expression, "pose" means the head pose

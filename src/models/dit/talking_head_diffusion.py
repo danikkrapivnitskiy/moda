@@ -41,6 +41,11 @@ class MotionDiffusion(nn.Module):
 
         self.device = device
 
+        # Get emotion config parameters (with defaults)
+        use_enhanced_emotion = motion_gen_params.get('use_enhanced_emotion', False)
+        emotion_model_path = motion_gen_params.get('emotion_model_path', None)
+        emotion_examples_dir = motion_gen_params.get('emotion_examples_dir', None)
+        
         # init motion generator
         self.talking_head_dit = TalkingHeadDiT_models[config.model_name](
             input_dim           = motion_gen_params.input_dim * 2,
@@ -54,7 +59,10 @@ class MotionDiffusion(nn.Module):
             audio_cond_dim      = audio_proj_params.audio_cond_dim,
             norm_type           = motion_gen_params.norm_type,
             qk_norm             = motion_gen_params.qk_norm,
-            exp_dim             = motion_gen_params.exp_dim
+            exp_dim             = motion_gen_params.exp_dim,
+            use_enhanced_emotion = use_enhanced_emotion,
+            emotion_model_path  = emotion_model_path,
+            emotion_examples_dir = emotion_examples_dir
         )
         self.input_dim = motion_gen_params.input_dim
         self.exp_dim = motion_gen_params.exp_dim

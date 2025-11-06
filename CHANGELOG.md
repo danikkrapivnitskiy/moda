@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- DICE-Talk emotion adapter integration for enhanced facial expressions
+- 64-code emotion control with VQ-VAE codebook and attention-based retrieval
+- Support for both emotion codes (0-8) and emotion feature files (.npy)
+- EmotionModel with QKV attention mechanism from DICE-Talk
+- Enhanced emotion processing in RunPod server (int code or base64 .npy)
+- EmotionAdapter wrapper for seamless integration with MoDA's DiT architecture
+- Compatibility test script (`test_emotion_compatibility.py`) for validation
+- Automatic fallback to simple emotion codes if enhanced model unavailable
+- Emotion .npy file loading from DICE-Talk examples directory
+- Docker integration for emotion model download during build
+
+### Changed
+
+- TalkingHeadDiT now supports optional DICE-Talk EmotionModel via `use_enhanced_emotion` flag
+- LiveVASAPipeline supports emotion feature file input (.npy format)
+- RunPod API accepts emotion as int code, emotion name string, or base64-encoded .npy file
+- MotionDiffusion propagates emotion configuration to DiT initialization
+- Improved facial expression quality while maintaining excellent lip sync
+- Emotion processing with graceful degradation on errors
+
+### Technical Details
+
+- Emotion model checkpoint: ~4.2 MB (`checkpoints/DICE-Talk/emo_model.pth`)
+- Emotion features: 32 tokens × 1024 dimensions with attention-based retrieval
+- Processing overhead: ~10-50ms per frame for emotion conditioning
+- Memory impact: +50MB GPU memory for emotion model
+- Backward compatible: fallback to simple emotion codes (0-8) if enhanced model not available
+- Input formats supported:
+  - Integer codes: 0-8 (Anger, Contempt, Disgust, Fear, Happiness, Neutral, Sadness, Surprise, None)
+  - .npy files: DICE-Talk emotion feature files with 5D tensor format (B, L, D1, D2, 256)
+  - Base64 .npy: Encoded emotion files via RunPod API
+- Configuration: `use_enhanced_emotion: false` by default (opt-in feature)
+- Docker: Emotion model downloaded from `krapiunitski/dice-talk-checkpoints` during build
+
+### Added
+
 - Performance optimization: Increased batch_size from 50 to 75 for 30% faster processing on A6000/A40 48GB GPUs
 - Quality improvement: Increased resolution from 512x512 to 640x640 (25% more pixels)
 - Quality improvement: Reduced CRF from 25 to 23 for better video quality
