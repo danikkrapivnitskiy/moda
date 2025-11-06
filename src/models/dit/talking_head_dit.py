@@ -69,6 +69,9 @@ class TalkingHeadDiT(nn.Module):
         self.num_emo_class = 8
         self.emo_drop_prob = 0.1
         self.use_enhanced_emotion = use_enhanced_emotion and EMOTION_ADAPTER_AVAILABLE
+        self.emo_scale = kwargs.get('emo_scale', 1.0)  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+        if self.emo_scale != 1.0:
+            print(f"[INFO] Emotion scale set to {self.emo_scale} (emotions will be {'stronger' if self.emo_scale > 1.0 else 'weaker'})")
 
         self.num_heads = num_heads
         self.out_channels = output_dim
@@ -207,7 +210,56 @@ class TalkingHeadDiT(nn.Module):
         cache=True
         if cache:
             # emotion embedding - try enhanced adapter first, fallback to simple embedder
-            if self.use_enhanced_emotion and hasattr(self, 'emotion_adapter'):
+            # Handle list case for CFG: [None, emo] for unconditional/conditional
+            if isinstance(emo, list) and len(emo) == 2:
+                # Process unconditional (None -> neutral) and conditional separately
+                uncond_emo, cond_emo = emo
+                device = motion.device
+                emo_embeds_list = []
+                
+                for single_emo in [uncond_emo, cond_emo]:
+                    if single_emo is None:
+                        # Unconditional: use neutral emotion (8)
+                        single_emo = 8
+                    
+                    if self.use_enhanced_emotion and hasattr(self, 'emotion_adapter'):
+                        try:
+                            emo_embeds_enhanced = self.emotion_adapter(single_emo, device=device)
+                            if emo_embeds_enhanced is not None:
+                                emo_embeds_list.append(emo_embeds_enhanced)
+                            else:
+                                # Fallback to simple embedder
+                                if isinstance(single_emo, int):
+                                    emo_tensor = torch.tensor([single_emo], device=device, dtype=torch.long)
+                                elif isinstance(single_emo, torch.Tensor):
+                                    emo_tensor = single_emo.to(device).long()
+                                else:
+                                    emo_tensor = torch.tensor([8], device=device, dtype=torch.long)
+                                emo_embeds_list.append(self.emo_embedder(emo_tensor, self.training))
+                        except Exception as e:
+                            # Fallback on error
+                            if isinstance(single_emo, int):
+                                emo_tensor = torch.tensor([single_emo], device=device, dtype=torch.long)
+                            elif isinstance(single_emo, torch.Tensor):
+                                emo_tensor = single_emo.to(device).long()
+                            else:
+                                emo_tensor = torch.tensor([8], device=device, dtype=torch.long)
+                            emo_embeds_list.append(self.emo_embedder(emo_tensor, self.training))
+                    else:
+                        # Simple embedder
+                        if isinstance(single_emo, int):
+                            emo_tensor = torch.tensor([single_emo], device=device, dtype=torch.long)
+                        elif isinstance(single_emo, torch.Tensor):
+                            emo_tensor = single_emo.to(device).long()
+                        else:
+                            emo_tensor = torch.tensor([8], device=device, dtype=torch.long)
+                        emo_embeds_list.append(self.emo_embedder(emo_tensor, self.training))
+                
+                # Concatenate unconditional and conditional embeddings
+                emo_embeds = torch.cat(emo_embeds_list, dim=0)  # (2, hidden_size)
+                # Apply emotion scale to enhance expressiveness
+                emo_embeds = emo_embeds * self.emo_scale
+            elif self.use_enhanced_emotion and hasattr(self, 'emotion_adapter'):
                 try:
                     # Try to process with emotion adapter
                     # emo can be: int, str (path), or torch.Tensor
@@ -216,7 +268,7 @@ class TalkingHeadDiT(nn.Module):
                     
                     if emo_embeds_enhanced is not None:
                         # Enhanced emotion embedding successful
-                        emo_embeds = emo_embeds_enhanced  # (B, hidden_size)
+                        emo_embeds = emo_embeds_enhanced * self.emo_scale  # (B, hidden_size) - apply scale
                     else:
                         # Fallback to simple embedder (e.g., int code without .npy file)
                         if isinstance(emo, (int, torch.Tensor)):
@@ -225,11 +277,11 @@ class TalkingHeadDiT(nn.Module):
                                 emo_tensor = torch.tensor([emo], device=device, dtype=torch.long)
                             else:
                                 emo_tensor = emo.to(device).long()
-                            emo_embeds = self.emo_embedder(emo_tensor, self.training)  # (B, D)
+                            emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale  # (B, D) - apply scale
                         else:
                             # Unknown format, use default
                             emo_tensor = torch.tensor([8], device=device, dtype=torch.long)  # neutral
-                            emo_embeds = self.emo_embedder(emo_tensor, self.training)
+                            emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale
                 except Exception as e:
                     # Fallback on error
                     print(f"[WARN] EmotionAdapter failed: {e}, using simple embedder")
@@ -238,10 +290,10 @@ class TalkingHeadDiT(nn.Module):
                             emo_tensor = torch.tensor([emo], device=motion.device, dtype=torch.long)
                         else:
                             emo_tensor = emo.to(motion.device).long()
-                        emo_embeds = self.emo_embedder(emo_tensor, self.training)
+                        emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale
                     else:
                         emo_tensor = torch.tensor([8], device=motion.device, dtype=torch.long)
-                        emo_embeds = self.emo_embedder(emo_tensor, self.training)
+                        emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale
             else:
                 # Simple embedder (default)
                 if isinstance(emo, (int, torch.Tensor)):
@@ -249,11 +301,11 @@ class TalkingHeadDiT(nn.Module):
                         emo_tensor = torch.tensor([emo], device=motion.device, dtype=torch.long)
                     else:
                         emo_tensor = emo.to(motion.device).long()
-                    emo_embeds = self.emo_embedder(emo_tensor, self.training)  # (B, D)
+                    emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale  # (B, D) - apply scale
                 else:
                     # Unknown format, use neutral
                     emo_tensor = torch.tensor([8], device=motion.device, dtype=torch.long)
-                    emo_embeds = self.emo_embedder(emo_tensor, self.training)
+                    emo_embeds = self.emo_embedder(emo_tensor, self.training) * self.emo_scale
             
             audio_cond=audio_cond.mean(1)
             audio_cond_embeds = self.identity_embedder(audio_cond)

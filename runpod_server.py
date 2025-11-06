@@ -275,32 +275,78 @@ def process_emotion_input(emotion_input, temp_dir):
     """
     Process emotion input from RunPod request.
     
-    Supports two input modes:
+    Supports multiple input modes:
     1. Integer code (0-8): Basic emotions
        - 0: Anger, 1: Contempt, 2: Disgust, 3: Fear
        - 4: Happiness, 5: Neutral, 6: Sadness, 7: Surprise
        - 8: None (neutral, default)
-    2. Base64 encoded .npy file: Enhanced DICE-Talk emotion features
+       - Automatically tries to find .npy file first, falls back to integer code
+    2. Emotion name string ("happy", "sad", etc.): Auto-finds .npy file
+       - Maps to examples/emo/{emotion_name}.npy
+       - Uses DICE-Talk enhanced emotions if available
+    3. Base64 encoded .npy file: Enhanced DICE-Talk emotion features
        - Upload .npy file from DICE-Talk examples/emo/ directory
        - Provides 64-code emotion control with attention-based retrieval
+    4. File path to .npy: Direct path to emotion file
     
     Args:
-        emotion_input: int, str (base64 .npy), or None
+        emotion_input: int, str (emotion name, base64 .npy, or file path), or None
         temp_dir: temporary directory for files
     
     Returns:
-        Processed emotion (int or str path to .npy)
+        Processed emotion (int, str path to .npy, or emotion name for .npy lookup)
     """
+    # Load config to get emotion_examples_dir and default_emotion
+    config = load_runpod_config()
+    emotion_examples_dir = config.get('emotion', {}).get('emotion_examples_dir', 'examples/emo')
+    default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
+    
     if emotion_input is None:
-        return 8  # Default neutral
+        return default_emotion  # Use default_emotion from config
+    
+    # Emotion code to name mapping (for .npy file lookup)
+    emotion_code_to_name = {
+        0: 'angry',
+        1: 'contempt',
+        2: 'disgusted',
+        3: 'fear',
+        4: 'happy',
+        5: 'neutral',
+        6: 'sad',
+        7: 'surprised',
+        8: 'neutral'  # None -> neutral
+    }
+    
+    # Emotion name mapping (for string input)
+    emotion_name_map = {
+        'anger': 'angry', 'angry': 'angry',
+        'contempt': 'contempt',
+        'disgust': 'disgusted', 'disgusted': 'disgusted',
+        'fear': 'fear',
+        'happiness': 'happy', 'happy': 'happy',
+        'neutral': 'neutral',
+        'sadness': 'sad', 'sad': 'sad',
+        'surprise': 'surprised', 'surprised': 'surprised',
+        'none': 'neutral'
+    }
     
     if isinstance(emotion_input, int):
         # Validate emotion code
         if 0 <= emotion_input <= 8:
-            return emotion_input
+            # Try to find .npy file for this emotion code
+            emotion_name = emotion_code_to_name.get(emotion_input, 'neutral')
+            npy_path = os.path.join(emotion_examples_dir, f"{emotion_name}.npy")
+            
+            # If .npy file exists, return path for enhanced emotions
+            if os.path.exists(npy_path):
+                print(f"[INFO] Found .npy file for emotion code {emotion_input} ({emotion_name})")
+                return npy_path
+            else:
+                # Fallback to integer code
+                return emotion_input
         else:
-            print(f"[WARN] Invalid emotion code {emotion_input}, using neutral (8)")
-            return 8
+            print(f"[WARN] Invalid emotion code {emotion_input}, using default_emotion ({default_emotion})")
+            return default_emotion
     
     if isinstance(emotion_input, str):
         # Check if it's base64 encoded .npy file
@@ -316,55 +362,41 @@ def process_emotion_input(emotion_input, temp_dir):
                     f.write(emotion_data)
                 print(f"[INFO] Saved emotion features to {emotion_path}")
                 return emotion_path
+        except Exception:
+            # Not base64, continue to check other formats
+            pass
+        
+        # Check if it's a file path
+        if emotion_input.endswith('.npy'):
+            if os.path.exists(emotion_input):
+                return emotion_input
             else:
-                # Not a .npy file, might be emotion name string
-                emotion_name = emotion_input.lower()
-                emotion_code_map = {
-                    'anger': 0, 'angry': 0,
-                    'contempt': 1,
-                    'disgust': 2, 'disgusted': 2,
-                    'fear': 3,
-                    'happiness': 4, 'happy': 4,
-                    'neutral': 5,
-                    'sadness': 6, 'sad': 6,
-                    'surprise': 7, 'surprised': 7,
-                    'none': 8
-                }
-                if emotion_name in emotion_code_map:
-                    return emotion_code_map[emotion_name]
-                else:
-                    print(f"[WARN] Unknown emotion string: {emotion_input}, using neutral")
-                    return 8
-        except Exception as e:
-            # Not base64, might be file path or emotion name
-            if emotion_input.endswith('.npy'):
-                # File path
-                if os.path.exists(emotion_input):
-                    return emotion_input
-                else:
-                    print(f"[WARN] Emotion file not found: {emotion_input}, using neutral")
-                    return 8
+                print(f"[WARN] Emotion file not found: {emotion_input}, using default_emotion ({default_emotion})")
+                return default_emotion
+        
+        # Try as emotion name string (like DICE-Talk)
+        emotion_name = emotion_input.lower()
+        
+        if emotion_name in emotion_name_map:
+            mapped_name = emotion_name_map[emotion_name]
+            npy_path = os.path.join(emotion_examples_dir, f"{mapped_name}.npy")
+            
+            if os.path.exists(npy_path):
+                print(f"[INFO] Found .npy file for emotion: {mapped_name}")
+                return npy_path
             else:
-                # Try as emotion name
-                emotion_name = emotion_input.lower()
+                print(f"[WARN] Emotion .npy file not found: {npy_path}, using emotion code")
+                # Fallback to emotion code
                 emotion_code_map = {
-                    'anger': 0, 'angry': 0,
-                    'contempt': 1,
-                    'disgust': 2, 'disgusted': 2,
-                    'fear': 3,
-                    'happiness': 4, 'happy': 4,
-                    'neutral': 5,
-                    'sadness': 6, 'sad': 6,
-                    'surprise': 7, 'surprised': 7,
-                    'none': 8
+                    'angry': 0, 'contempt': 1, 'disgusted': 2, 'fear': 3,
+                    'happy': 4, 'neutral': 5, 'sad': 6, 'surprised': 7
                 }
-                if emotion_name in emotion_code_map:
-                    return emotion_code_map[emotion_name]
-                else:
-                    print(f"[WARN] Failed to process emotion input: {e}, using neutral")
-                    return 8
+                return emotion_code_map.get(mapped_name, default_emotion)
+        else:
+            print(f"[WARN] Unknown emotion string: {emotion_input}, using default_emotion ({default_emotion})")
+            return default_emotion
     
-    return 8
+    return default_emotion
 
 def load_runpod_config():
     """Load RunPod configuration from YAML file"""
@@ -1001,8 +1033,21 @@ def handler(event):
             #   smooth=False, silent_audio_path=None, silent_mode="post"
             # Get optional parameters from input
             cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
-            emo_input = input_data.get("emo", 8)  # Emotion: 0-8 for codes, or base64 .npy string
+            
+            # Get default_emotion from config (emotion.default_emotion)
+            config = load_runpod_config()
+            default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
+            
+            # Support both "emo" and "emotion" keys (emotion takes priority if both present)
+            emo_input = input_data.get("emotion") or input_data.get("emo")
+            if emo_input is None:
+                emo_input = default_emotion
+                print(f"[INFO] No emotion specified in request, using default_emotion from config: {default_emotion}")
+            else:
+                print(f"[INFO] Emotion input from request: {emo_input} (type: {type(emo_input).__name__})")
+            
             emo = process_emotion_input(emo_input, temp_dir)  # Process emotion (int code or .npy file)
+            print(f"[INFO] Processed emotion result: {emo} (type: {type(emo).__name__})")
             smooth = input_data.get("smooth", False)  # Smooth motion transitions
             
             # Create temporary directory for output (driven_sample needs save_dir, not file path)

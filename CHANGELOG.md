@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MotionDiffusion propagates emotion configuration to DiT initialization
 - Improved facial expression quality while maintaining excellent lip sync
 - Emotion processing with graceful degradation on errors
+- Enhanced DICE-Talk emotions now enabled by default (`use_enhanced_emotion: true`)
+- Emotion names ("happy", "sad", "angry", etc.) now automatically resolve to .npy files in examples/emo/ directory
+- Integer emotion codes (0-8) now automatically try to find corresponding .npy files first, fallback to simple codes if not found
+- Emotion input processing improved: supports DICE-Talk format with automatic .npy file lookup
 
 ### Technical Details
 
@@ -40,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integer codes: 0-8 (Anger, Contempt, Disgust, Fear, Happiness, Neutral, Sadness, Surprise, None)
   - .npy files: DICE-Talk emotion feature files with 5D tensor format (B, L, D1, D2, 256)
   - Base64 .npy: Encoded emotion files via RunPod API
-- Configuration: `use_enhanced_emotion: false` by default (opt-in feature)
+- Configuration: `use_enhanced_emotion: true` by default (enabled by default)
 - Docker: Emotion model downloaded from `krapiunitski/dice-talk-checkpoints` during build
 
 ### Added

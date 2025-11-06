@@ -22,10 +22,10 @@ paths:
 # Optimized for A6000/A40 48GB GPU ($0.00034/sec = $1.22/hr)
 # ============================================================================
 inference:
-  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
+  batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
                   # A6000/A40 has 48GB memory → can safely handle 75 batch size
   device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
-  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
+  source_max_dim: 512  # Increased from 512 → better quality (25% more pixels)
                        # Still fast enough for real-time generation
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
   input_height: 256
@@ -42,37 +42,42 @@ inference:
 # Optimized for A6000/A40 48GB GPU
 # ============================================================================
 motion_processor:
-  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
+  batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
                   # A6000/A40 has 48GB memory → can handle larger batches safely
-  warp_decode_batch_size: 100  # Increased from 75 → faster warp_decode on A6000/A40 48GB
+  warp_decode_batch_size: 20  # Increased from 75 → faster warp_decode on A6000/A40 48GB
                                # A6000/A40 can handle larger batches for warp_decode processing
-  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
+  source_max_dim: 512  # Increased from 512 → better quality (25% more pixels)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
   input_height: 256
   input_width: 256
-  output_height: 640  # Increased from 512 → better quality for Telegram
-  output_width: 640   # Increased from 512 → better quality for Telegram
+  output_height: 512  # Increased from 512 → better quality for Telegram
+  output_width: 512   # Increased from 512 → better quality for Telegram
   output_fps: 25
   # Expression and motion control
-  flag_relative_motion: True  # Required for expression-friendly mode to work properly
+  flag_relative_motion: False  # Required for expression-friendly mode to work properly
                                # Enables relative motion calculation for more natural expressions
   driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
                                        # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
                                        # pose-friendly: emphasizes head pose movements
-  driving_multiplier: 1.5  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
+  driving_multiplier: 1.2  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
                            # Increased from 1.0 to 1.5 for more visible facial movements
                            # Higher values make eyes, eyebrows, and lips more animated
+  emo_scale: 1.2  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+                  # Reduced from 1.5 to 1.2 for better balance with audio-driven expressions
+                  # Higher values (1.5-2.0) make emotions more expressive, especially for eyebrow movements
+                  # This scales emotion embeddings before they're integrated with audio and motion
+                  # Values >2.0 may cause artifacts, recommended range: 1.0-2.0
 
 # ============================================================================
 # VIDEO QUALITY SETTINGS
 # These parameters control video encoding quality (Telegram optimized)
 # ============================================================================
 video_quality:
-  crf: 23              # Reduced from 25 → better quality with minimal speed impact
+  crf: 18              # Reduced from 25 → better quality with minimal speed impact
                        # CRF 23 = good balance between quality and file size
                        # Lower CRF = better quality (18=best, 28=medium)
   codec: "libx264"     # H.264 video codec
-  preset: "faster"     # Encoding speed preset (faster/medium/slow)
+  preset: "medium"     # Encoding speed preset (faster/medium/slow)
   pixelformat: "yuv420p"  # Pixel format for compatibility
   output_format: "mp4" # Output format
 
@@ -81,9 +86,9 @@ video_quality:
 # These parameters control performance optimizations for A6000/A40 48GB
 # ============================================================================
 performance:
-  enable_torch_compile: True  # Enable torch.compile for 20-30% speedup on A6000/A40
+  enable_torch_compile: False  # Enable torch.compile for 20-30% speedup on A6000/A40
                               # Maps to flag_do_torch_compile in liveportrait_config.yaml
-  use_half_precision: True    # FP16 for faster inference on A6000/A40
+  use_half_precision: False    # FP16 for faster inference on A6000/A40
                               # Maps to flag_use_half_precision in liveportrait_config.yaml
   max_video_length: 1000      # 40 seconds max for A6000/A40 48GB
                               # Can be overridden by inference.max_video_length if set
@@ -134,7 +139,7 @@ emotion:
   # 2. Emotion feature file (str): path to .npy file from DICE-Talk examples
   #    Example: "examples/emo/happy.npy" for enhanced emotion control
   #    Provides 64-code emotion control with VQ-VAE codebook and attention-based retrieval
-  use_enhanced_emotion: false  # Enable DICE-Talk emotion adapter (opt-in, default: false)
+  use_enhanced_emotion: true  # Enable DICE-Talk emotion adapter (enabled by default)
   emotion_model_path: null     # Path to emo_model.pth checkpoint (optional, auto-detected if null)
                                 # Auto-searches in standard locations:
                                 # - /workspace/checkpoints/DICE-Talk/emo_model.pth (persistent storage)
@@ -144,6 +149,7 @@ emotion:
                                 # krapiunitski/moda-emotion-model (lightweight, ~286 MB)
   emotion_examples_dir: "examples/emo"  # Directory with DICE-Talk emotion .npy files
   default_emotion: 8  # Default emotion code if not specified or file not found (8 = neutral/None)
+                       # Neutral works better as default - provides balanced expressions that work well with audio
   # Note: Enhanced emotions require emo_model.pth checkpoint and .npy example files
   # If not available, falls back to simple emotion codes (0-8)
 

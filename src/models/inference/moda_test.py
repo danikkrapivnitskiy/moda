@@ -77,6 +77,18 @@ class LiveVASAPipeline(object):
         if cfg.motion_models_config is not None and load_motion_generator:
             motion_models_config = OmegaConf.load(cfg.motion_models_config)
             log(f"Load motion_models_config from {osp.realpath(cfg.motion_models_config)} done.")
+            
+            # Merge emo_scale from primary_config if available
+            if primary_config is not None:
+                emo_scale = primary_config.get('motion_processor', {}).get('emo_scale')
+                if emo_scale is not None:
+                    if 'motion_generator' not in motion_models_config:
+                        motion_models_config['motion_generator'] = OmegaConf.create({})
+                    if 'params' not in motion_models_config.motion_generator:
+                        motion_models_config.motion_generator['params'] = OmegaConf.create({})
+                    motion_models_config.motion_generator.params['emo_scale'] = emo_scale
+                    log(f"Merged emo_scale={emo_scale} from primary config into motion_generator.params")
+            
             self.motion_generator = MotionDiffusion(motion_models_config, device=self.device)
             self.load_motion_generator(self.motion_generator, cfg.motion_generator_path)
             # self.motion_generator.eval()

@@ -150,23 +150,125 @@ class EmotionAdapter(nn.Module):
         try:
             data = np.load(npy_path, allow_pickle=True)
             
-            # Handle both formats:
-            # 1. Direct array (old format)
-            # 2. Dict with 'mu' key (DICE-Talk format)
-            if isinstance(data, np.ndarray):
-                emo_tensor = torch.from_numpy(data).float()
+            # Handle different formats:
+            # 1. Direct numeric array (old format)
+            # 2. Object array containing dict with 'mu' key (DICE-Talk format)
+            # 3. Direct dict (if allow_pickle=True loads as dict)
+            
+            emo_data = None
+            
+            # Check if data is object array (numpy.object_)
+            if isinstance(data, np.ndarray) and data.dtype == np.object_:
+                # Object array: extract the actual data
+                if data.size == 1:
+                    # Single object, likely a dict
+                    item = data.item()
+                    if isinstance(item, dict):
+                        if 'mu' in item:
+                            emo_data = item['mu']
+                        else:
+                            # Try to find any array-like value
+                            for key, value in item.items():
+                                if isinstance(value, np.ndarray) or isinstance(value, (list, tuple)):
+                                    emo_data = value
+                                    break
+                    elif isinstance(item, np.ndarray):
+                        emo_data = item
+                    else:
+                        emo_data = item
+                else:
+                    # Multiple objects, take first
+                    item = data.flat[0]
+                    if isinstance(item, dict) and 'mu' in item:
+                        emo_data = item['mu']
+                    elif isinstance(item, np.ndarray):
+                        emo_data = item
+                    else:
+                        emo_data = item
+            elif isinstance(data, np.ndarray):
+                # Regular numpy array - check if numeric
+                if data.dtype == np.object_:
+                    # Still object type, extract
+                    if data.size == 1:
+                        item = data.item()
+                        if isinstance(item, dict) and 'mu' in item:
+                            emo_data = item['mu']
+                        elif isinstance(item, np.ndarray):
+                            emo_data = item
+                        else:
+                            emo_data = item
+                    else:
+                        # Try to extract from first element
+                        item = data.flat[0]
+                        if isinstance(item, dict) and 'mu' in item:
+                            emo_data = item['mu']
+                        else:
+                            emo_data = data
+                else:
+                    # Numeric array, use directly
+                    emo_data = data
+            elif isinstance(data, dict):
+                # Direct dict format
+                if 'mu' in data:
+                    emo_data = data['mu']
+                else:
+                    # Try to find any array-like value
+                    for key, value in data.items():
+                        if isinstance(value, np.ndarray) or isinstance(value, (list, tuple)):
+                            emo_data = value
+                            break
             else:
-                # Dict format
-                emo_tensor = torch.from_numpy(data.item()['mu']).float()
+                # Other format, try to extract
+                if hasattr(data, 'item'):
+                    item = data.item()
+                    if isinstance(item, dict) and 'mu' in item:
+                        emo_data = item['mu']
+                    else:
+                        emo_data = item
+                else:
+                    emo_data = data
+            
+            # Convert to tensor
+            if emo_data is None:
+                raise ValueError(f"Could not extract emotion data from {npy_path}")
+            
+            if isinstance(emo_data, np.ndarray):
+                # Check if numeric type that can be converted with torch.from_numpy
+                if emo_data.dtype == np.object_:
+                    # Object array, convert via torch.tensor
+                    emo_tensor = torch.tensor(np.array(emo_data, dtype=np.float32), dtype=torch.float32)
+                else:
+                    # Numeric array, use torch.from_numpy
+                    emo_tensor = torch.from_numpy(emo_data).float()
+            elif isinstance(emo_data, (list, tuple)):
+                # List/tuple, convert to numpy first
+                emo_array = np.array(emo_data, dtype=np.float32)
+                emo_tensor = torch.from_numpy(emo_array).float()
+            else:
+                # Other type, try to convert
+                emo_array = np.array(emo_data, dtype=np.float32)
+                emo_tensor = torch.tensor(emo_array, dtype=torch.float32)
             
             # Ensure correct shape: (1, 1, 1, 1, 256)
-            if emo_tensor.dim() == 5:
-                return emo_tensor
-            elif emo_tensor.dim() == 1:
-                return emo_tensor.view(1, 1, 1, 1, -1)
-            else:
-                # Reshape to expected format
-                return emo_tensor.unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            # Flatten to 1D first, then reshape to ensure correct dimensions
+            if emo_tensor.dim() == 0:
+                # Scalar, convert to 1D
+                emo_tensor = emo_tensor.unsqueeze(0)
+            
+            # Flatten to get the feature vector
+            flat_tensor = emo_tensor.flatten()
+            
+            # Ensure we have exactly 256 features (pad or truncate if needed)
+            if flat_tensor.shape[0] < 256:
+                # Pad with zeros if too short
+                padding = torch.zeros(256 - flat_tensor.shape[0], dtype=flat_tensor.dtype, device=flat_tensor.device)
+                flat_tensor = torch.cat([flat_tensor, padding])
+            elif flat_tensor.shape[0] > 256:
+                # Truncate if too long (take first 256)
+                flat_tensor = flat_tensor[:256]
+            
+            # Reshape to (1, 1, 1, 1, 256)
+            return flat_tensor.view(1, 1, 1, 1, 256)
                 
         except Exception as e:
             print(f"[ERROR] Failed to load emotion from {npy_path}: {e}")
