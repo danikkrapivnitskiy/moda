@@ -1,0 +1,34 @@
+{
+  "commands": [
+    {
+      "command": "bot-check",
+      "title": "Check Bot Status",
+      "description": "Simple check if bot is running",
+      "category": "Bot Management"
+    },
+    {
+      "command": "bot-status",
+      "title": "Show Bot Status",
+      "description": "Detailed bot status with processes and configuration",
+      "category": "Bot Management"
+    },
+    {
+      "command": "bot-start",
+      "title": "Start Bot",
+      "description": "Start the Telegram AI Bot",
+      "category": "Bot Management"
+    },
+    {
+      "command": "bot-stop",
+      "title": "Stop Bot",
+      "description": "Stop the Telegram AI Bot",
+      "category": "Bot Management"
+    },
+    {
+      "command": "bot-restart",
+      "title": "Restart Bot",
+      "description": "Restart the Telegram AI Bot",
+      "category": "Bot Management"
+    }
+  ]
+}

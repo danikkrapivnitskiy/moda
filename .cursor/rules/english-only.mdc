@@ -1,0 +1,216 @@
+---
+globs: *.md,*.ts,*.tsx,*.js,*.jsx
+alwaysApply: true
+description: All documentation, code comments, and messages must be in English
+---
+
+# Microsoft Enterprise English Language Requirement
+
+## All Enterprise Project Content Must Be in English
+
+This is a **strict Microsoft enterprise requirement** for the entire multi-million dollar project.
+
+### Enterprise Context
+
+**Microsoft Enterprise Project** (✅ Can be in any language):
+
+- User requests and questions to the AI assistant
+- Conversations with the AI during development
+- User-facing messages in the Telegram bot (can be internationalized)
+
+**Enterprise Codebase Content** (❌ Must be in English only):
+
+- All source code and scripts - Microsoft enterprise standard
+- All documentation files - Enterprise documentation standard
+- All code comments and JSDoc - Enterprise code clarity
+- All variable/function names - Enterprise naming conventions
+- All error and log messages - Enterprise error handling
+- All commit messages - Enterprise version control
+- All configuration comments - Enterprise configuration management
+
+### What Must Be in English
+
+1. **Documentation Files** (`.md`)
+   - All README files
+   - All guide files
+   - All reference documentation
+   - All inline documentation
+   - All examples and tutorials
+
+2. **Code Comments**
+
+   ```typescript
+   // ✅ Good - English
+   // Process the message and generate response
+
+   // ❌ Bad - Other languages
+   // Обработать сообщение и сгенерировать ответ
+   ```
+
+3. **Code Documentation (JSDoc)**
+
+   ```typescript
+   /**
+    * ✅ Good - English
+    * Transcribes audio file to text using OpenAI Whisper
+    * @param audioPath - Path to the audio file
+    * @returns Transcribed text
+    */
+
+   /**
+    * ❌ Bad - Other languages
+    * Транскрибирует аудио файл в текст
+    */
+   ```
+
+4. **Variable Names and Functions**
+
+   ```typescript
+   // ✅ Good - English
+   const userName = 'John';
+   function processMessage() {}
+
+   // ❌ Bad - Other languages
+   const имяПользователя = 'John';
+   function обработатьСообщение() {}
+   ```
+
+5. **Error Messages**
+
+   ```typescript
+   // ✅ Good - English
+   throw new Error('Failed to transcribe audio');
+
+   // ❌ Bad - Other languages
+   throw new Error('Не удалось транскрибировать аудио');
+   ```
+
+6. **Log Messages**
+
+   ```typescript
+   // ✅ Good - English
+   logger.info('Processing message', { chatId });
+
+   // ❌ Bad - Other languages
+   logger.info('Обработка сообщения', { chatId });
+   ```
+
+7. **User-Facing Messages**
+
+   ```typescript
+   // ✅ Good - English
+   await ctx.reply("Sorry, I couldn't understand the audio.");
+
+   // ❌ Bad - Other languages
+   await ctx.reply('Извините, я не смог понять аудио.');
+   ```
+
+8. **Commit Messages**
+
+   ```bash
+   # ✅ Good - English
+   git commit -m "feat: add waveform video visualization"
+
+   # ❌ Bad - Other languages
+   git commit -m "добавлена визуализация с волной"
+   ```
+
+9. **Configuration Comments**
+
+   ```bash
+   # ✅ Good - English
+   # Telegram bot token from @BotFather
+   TELEGRAM_BOT_TOKEN=...
+
+   # ❌ Bad - Other languages
+   # Токен бота из @BotFather
+   ```
+
+10. **Test Names and Descriptions**
+
+    ```typescript
+    // ✅ Good - English
+    describe('STT Service', () => {
+      it('should transcribe audio file', async () => {
+        // ...
+      });
+    });
+
+    // ❌ Bad - Other languages
+    describe('Сервис распознавания речи', () => {
+      // ...
+    });
+    ```
+
+## Why English Only?
+
+1. **International collaboration** - Anyone in the world can contribute
+2. **Professional standard** - English is the lingua franca of programming
+3. **Tool compatibility** - Many dev tools expect English
+4. **Search and discovery** - Easier to find and understand code
+5. **Consistency** - One language throughout the project
+
+## No Exceptions for Codebase Content
+
+For **codebase content**, there are **NO exceptions** to this rule:
+
+- Not for internal comments
+- Not for temporary notes
+- Not for draft documentation
+- Not for quick fixes
+- Not for debugging messages
+
+**Everything in the codebase** must be in English from the start.
+
+**User communication** with the AI assistant can be in any language - the assistant will understand and respond appropriately while ensuring all generated code remains in English.
+
+## Enforcement
+
+### Code Review Checklist
+
+- [ ] All documentation is in English
+- [ ] All code comments are in English
+- [ ] All error messages are in English
+- [ ] All log messages are in English
+- [ ] All variable names are in English
+- [ ] All commit messages are in English
+
+### Before Committing
+
+Run this mental checklist:
+
+1. Can an English-speaking developer understand this without translation?
+2. Are all comments, messages, and docs in English?
+3. Would I be comfortable showing this to an international team?
+
+If any answer is "no" or "maybe" - rewrite in English.
+
+## Translation
+
+If you need to support multiple languages for **end users**:
+
+- Use i18n/localization libraries
+- Keep English as the base language
+- All code and internal docs stay in English
+- Only user-facing UI can be translated
+
+```typescript
+// ✅ Good - Proper internationalization
+const messages = {
+  en: 'Failed to process message',
+  ru: 'Не удалось обработать сообщение',
+  // ... other languages
+};
+
+// Code and logs stay in English
+logger.error('Message processing failed', { chatId });
+```
+
+## Summary
+
+**Golden Rule**: If it's written in this project's codebase, it must be in English.
+
+- ✅ **User communication**: Can be in any language
+- ❌ **All code, documentation, comments**: Must be in English only
+
+No mixing of languages in the codebase. No exceptions for code content. English only.

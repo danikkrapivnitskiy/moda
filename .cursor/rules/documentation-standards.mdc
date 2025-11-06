@@ -1,0 +1,218 @@
+---
+globs: .md
+alwaysApply: false
+---
+
+# Microsoft Enterprise Documentation Standards
+
+## Enterprise Documentation Philosophy
+
+**DO NOT create separate documentation files for every new feature.** This **Microsoft enterprise project** codebase is self-documenting through:
+
+- **Enterprise-grade code structure** - Microsoft standards
+- **Enterprise JSDoc comments** in code - Enterprise documentation
+- **Enterprise architecture documentation** - Microsoft patterns
+- **Enterprise CHANGELOG.md** for tracking changes - Enterprise change management
+
+## When to Create Documentation
+
+### ✅ Always Update
+
+- [CHANGELOG.md](mdc:CHANGELOG.md) - **Required for all changes**
+
+### ✅ Create Documentation Only For
+
+- Major architectural changes
+- New design patterns or paradigms
+- Complex system-wide features
+- Migration guides for breaking changes
+- Setup and deployment procedures
+
+### ❌ Do NOT Create Documentation For
+
+- Individual features (rely on code comments)
+- New services (use JSDoc in service files)
+- API endpoints (use inline comments)
+- Configuration options (document in .env.example and code)
+- Bug fixes and minor improvements
+
+## CHANGELOG.md Guidelines
+
+### Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format with these sections:
+
+- **Added** - New features
+- **Changed** - Changes in existing functionality
+- **Deprecated** - Soon-to-be removed features
+- **Removed** - Removed features
+- **Fixed** - Bug fixes
+- **Security** - Security fixes
+
+### Entry Requirements
+
+Every significant change must have a CHANGELOG entry with:
+
+1. Brief description (1-2 lines)
+2. Affected components if applicable
+3. Configuration changes if any
+4. Breaking changes clearly marked
+
+### Example Entry
+
+```markdown
+## [Unreleased]
+
+### Added
+
+- Image generation service using OpenAI DALL-E for talking cat videos
+- `USE_IMAGE_GENERATION` environment variable to enable/disable feature
+- `ImageGenerationError` error type for image generation failures
+
+### Changed
+
+- Video service now accepts optional image parameter for custom visuals
+- TTS voice default changed to 'onyx' (male voice) for better talking cat experience
+```
+
+## Code Documentation
+
+### Service Files
+
+Use JSDoc comments:
+
+```typescript
+/**
+ * Image Generation Service
+ * Generates images using OpenAI DALL-E
+ */
+export class ImageGenerationService {
+  /**
+   * Generate a talking cat image with specific style
+   * @returns Path to the generated cat image file
+   */
+  async generateTalkingCat(): Promise<string> {
+    // Implementation with inline comments for complex logic
+  }
+}
+```
+
+### Complex Logic
+
+Use inline comments for:
+
+- Non-obvious algorithms
+- Business logic decisions
+- Performance optimizations
+- Workarounds
+
+### Configuration
+
+Document in code:
+
+```typescript
+export const config = {
+  video: {
+    // Enable AI-generated images for video notes (slower but more engaging)
+    useImageGeneration: getEnvVar('USE_IMAGE_GENERATION', 'false') === 'true',
+  },
+};
+```
+
+## Existing Documentation Files
+
+These are the ONLY maintained documentation files:
+
+### Architecture & Design
+
+- [ARCHITECTURE_V2.md](mdc:docs/ARCHITECTURE_V2.md) - System architecture
+- [PROJECT_STRUCTURE.md](mdc:PROJECT_STRUCTURE.md) - File organization
+- [MIGRATION_GUIDE.md](mdc:docs/MIGRATION_GUIDE.md) - Version upgrades
+
+### Development
+
+- [DEVELOPMENT.md](mdc:docs/DEVELOPMENT.md) - Developer workflow
+- [CONFIGURATION_GUIDE.md](mdc:docs/CONFIGURATION_GUIDE.md) - All configuration options
+- [CONTRIBUTING.md](mdc:CONTRIBUTING.md) - Contribution guidelines
+
+### Deployment
+
+- [DEPLOYMENT.md](mdc:DEPLOYMENT.md) - Production deployment
+- [SERVER_MANAGEMENT.md](mdc:SERVER_MANAGEMENT.md) - Server operations
+- [README.md](mdc:README.md) - Project overview
+
+### Reference
+
+- [API.md](mdc:API.md) - API documentation
+- [FAQ.md](mdc:FAQ.md) - Common questions
+- [CHANGELOG.md](mdc:CHANGELOG.md) - Version history
+
+## When Feature Requires Extensive Documentation
+
+If a feature is so complex it seems to need its own guide:
+
+1. **First**, consider if the feature is too complex (refactor if possible)
+2. **Second**, ensure code has excellent inline documentation
+3. **Third**, add comprehensive JSDoc comments
+4. **Finally**, add a section to existing relevant documentation (e.g., ARCHITECTURE_V2.md)
+
+## Update Strategy for New Features
+
+1. ✅ Write clear, self-documenting code
+2. ✅ Add JSDoc comments to public methods
+3. ✅ Add inline comments for complex logic
+4. ✅ Update CHANGELOG.md with changes
+5. ✅ Update .env.example if new config added
+6. ❌ Do NOT create feature-specific .md files
+
+## Examples
+
+### Good Practice
+
+```typescript
+// services/imageGeneration.service.ts
+
+/**
+ * Image Generation Service
+ *
+ * Generates AI images using OpenAI DALL-E 3 for video notes.
+ * Images are cached in tmp/ and cleaned up after video generation.
+ *
+ * Cost: ~$0.04 per image (standard quality)
+ * Duration: 5-10 seconds per generation
+ */
+export class ImageGenerationService {
+  /**
+   * Generate a talking cat character image
+   *
+   * Uses a predefined prompt optimized for video notes.
+   * Images are 1024x1024 and scaled to 512x512 for videos.
+   *
+   * @returns Path to generated PNG file in tmp/
+   * @throws {ImageGenerationError} If DALL-E API fails
+   */
+  async generateTalkingCat(): Promise<string> {
+    // Implementation
+  }
+}
+```
+
+### Bad Practice
+
+❌ Creating `docs/IMAGE_GENERATION_GUIDE.md` with:
+
+- What the feature does (should be in code comments)
+- How to use it (should be in JSDoc)
+- Configuration options (should be in CONFIGURATION_GUIDE.md)
+- Examples (should be in code comments or tests)
+
+## Summary
+
+- **Code is documentation** - Write clear, self-documenting code
+- **CHANGELOG is required** - Always update for changes
+- **Minimize separate docs** - Avoid proliferation of .md files
+- **JSDoc for public APIs** - Document service interfaces
+- **Inline for complexity** - Comment non-obvious logic
+- **Update existing docs** - Don't create new ones
+
+This keeps documentation maintainable, up-to-date, and closely tied to the code.

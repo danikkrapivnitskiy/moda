@@ -2,7 +2,7 @@
 model_params:
   model_name: hubert   # wav2vec or hubert
   model_type: base   # base large
-  is_chinese: True
+  is_chinese: True   # Using chinese-hubert-base (it's multilingual despite the name)
   is_original: True
   only_last_features: False
   use_audio_separator: False
@@ -13,7 +13,7 @@ model_weights:
   audio_separator_path: pretrain_weights/audio/audio_separator
   hubert_path:
     chinese:
-      base: pretrain_weights/audio/chinese-hubert-base
+      base: /app/pretrain_weights/audio/chinese-hubert-base  # Absolute path for Docker/RunPod (via symlink)
 # data settings
 data_params:
   sample_rate: 16000

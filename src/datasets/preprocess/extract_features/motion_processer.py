@@ -143,11 +143,8 @@ class MotionProcesser(object):
         print(f"Load generator from {osp.realpath(cfg.spade_generator_path)} done.")
 
         # # Optimize for inference
-        self.compile = cfg.flag_do_torch_compile
-        if self.compile:
-            torch._dynamo.config.suppress_errors = True  # Suppress errors and fall back to eager execution
-            self.warping_module = torch.compile(self.warping_module, mode='max-autotune')
-            self.spade_generator = torch.compile(self.spade_generator, mode='max-autotune')
+        # Note: GPU properties will be cached after cropper initialization
+        # We'll check torch.compile support after caching GPU props
 
         # 6. init cropper
         crop_cfg = OmegaConf.load(cfg.crop_cfg)
@@ -156,7 +153,58 @@ class MotionProcesser(object):
         self.cfg = cfg
         self.models_config = models_config
         self.device = device
-    
+        self.device_id = device_id
+        
+        # Cache GPU properties once to avoid redundant checks
+        # Used in inference_ctx() and driven() methods
+        self._gpu_props = None
+        self._gpu_memory_gb = None
+        self._fp16_supported = None
+        self._torch_compile_supported = None
+        self._gpu_checker = None  # GPUCompatibilityChecker instance
+        
+        if torch.cuda.is_available():
+            try:
+                self._gpu_props = torch.cuda.get_device_properties(device_id)
+                self._gpu_memory_gb = self._gpu_props.total_memory / (1024**3)
+                self._fp16_supported = self._gpu_props.major >= 7
+                self._torch_compile_supported = self._gpu_props.major >= 7
+                print(f"[INFO] GPU properties cached: {self._gpu_props.name}, "
+                      f"compute capability {self._gpu_props.major}.{self._gpu_props.minor}, "
+                      f"{self._gpu_memory_gb:.1f}GB")
+                
+                # Initialize GPUCompatibilityChecker for batch_size recommendations
+                try:
+                    src_path = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
+                    if src_path not in sys.path:
+                        sys.path.insert(0, src_path)
+                    from utils.gpu_compatibility import GPUCompatibilityChecker
+                    self._gpu_checker = GPUCompatibilityChecker(device_id)
+                except ImportError:
+                    print(f"[WARN] GPUCompatibilityChecker not available, will use fallback logic")
+            except Exception as e:
+                print(f"[WARN] Failed to cache GPU properties: {e}")
+        
+        # Apply torch.compile optimization using cached GPU properties
+        self.compile = cfg.flag_do_torch_compile
+        if self.compile:
+            # Check GPU compute capability before torch.compile (use cached properties)
+            if self._torch_compile_supported:
+                try:
+                    torch._dynamo.config.suppress_errors = True  # Suppress errors and fall back to eager execution
+                    self.warping_module = torch.compile(self.warping_module, mode='max-autotune')
+                    self.spade_generator = torch.compile(self.spade_generator, mode='max-autotune')
+                    print(f"[INFO] torch.compile enabled for {self._gpu_props.name}")
+                except Exception as e:
+                    print(f"[WARN] Failed to apply torch.compile: {e}, disabling")
+                    self.compile = False
+            else:
+                if self._gpu_props:
+                    print(f"[WARN] GPU compute capability {self._gpu_props.major}.{self._gpu_props.minor} < 7.0, disabling torch.compile")
+                else:
+                    print(f"[WARN] GPU properties not available, disabling torch.compile")
+                self.compile = False
+                cfg.flag_do_torch_compile = False
 
         # 7. load crop mask
         self.mask_crop = cv2.imread(cfg.mask_crop, cv2.IMREAD_COLOR)
@@ -167,9 +215,29 @@ class MotionProcesser(object):
         # 9. load face parser
         self.face_parser, self.to_tensor = build_face_parser(weight_path=cfg.face_parser_weight_path, resnet_weight_path=cfg.resnet_weight_path, device_id=device_id)
 
-    def inference_ctx(self):    
+    def inference_ctx(self):
+        # Check FP16 support if enabled (use cached GPU properties)
+        use_fp16 = self.cfg.flag_use_half_precision
+        if use_fp16:
+            if self._fp16_supported is False:
+                # Use cached value - already checked in __init__
+                use_fp16 = False
+                if self._gpu_props:
+                    print(f"[WARN] GPU compute capability {self._gpu_props.major}.{self._gpu_props.minor} < 7.0, disabling FP16")
+            elif self._fp16_supported is None:
+                # GPU properties not cached, check now (fallback)
+                try:
+                    if torch.cuda.is_available():
+                        props = torch.cuda.get_device_properties(self.device_id)
+                        if props.major < 7:
+                            print(f"[WARN] GPU compute capability {props.major}.{props.minor} < 7.0, disabling FP16")
+                            use_fp16 = False
+                except Exception as e:
+                    print(f"[WARN] Failed to check FP16 support: {e}, disabling FP16")
+                    use_fp16 = False
+        
         ctx = torch.autocast(device_type=self.device[:4], dtype=torch.float16,
-                                 enabled=self.cfg.flag_use_half_precision)
+                                 enabled=use_fp16)
         return ctx
 
     @torch.no_grad()
@@ -731,12 +799,111 @@ class MotionProcesser(object):
             x_d_i_news.append(x_d_i_new)
         f_s_s= f_s.expand(n_frames, *f_s.shape[1:]) 
         x_s_s = x_s.expand(n_frames, *x_s.shape[1:])  
-        x_d_i_new = torch.cat(x_d_i_news, dim=0)        
-        for start in range(0, n_frames, 100):
-            end = min(start + 100,n_frames)
-            with torch.no_grad(), torch.autocast('cuda'):
-                out = self.warp_decode(f_s_s[start:end], x_s_s[start:end], x_d_i_new[start:end])        
-                I_p_lst.append(out['out'])
+        x_d_i_new = torch.cat(x_d_i_news, dim=0)
+        
+        # Validate n_frames edge cases
+        if n_frames == 0:
+            raise ValueError("No frames to process - n_frames is 0")
+        if n_frames > 2000:
+            print(f"[WARN] Processing very long video: {n_frames} frames (may cause memory issues)")
+        
+        # Use configurable batch size (default 20 for memory efficiency on RTX 4090 24GB)
+        # Reduced from hardcoded 100 to prevent CUDA OOM errors
+        warp_batch_size = getattr(self.cfg, 'warp_decode_batch_size', 20)
+        
+        # GPU memory-aware safety limit (prevents CUDA OOM)
+        # Use GPUCompatibilityChecker for centralized batch_size recommendations
+        max_safe_batch = None
+        total_memory_gb = None
+        
+        if self._gpu_checker is not None:
+            # Use GPUCompatibilityChecker for recommended batch_size (single source of truth)
+            try:
+                max_safe_batch = self._gpu_checker.get_recommended_batch_size("warp_decode")
+                memory_info = self._gpu_checker.get_gpu_memory_info()
+                total_memory_gb = memory_info.get("total_gb", 0)
+            except Exception as e:
+                print(f"[WARN] Failed to get recommended batch_size from GPUCompatibilityChecker: {e}")
+        
+        if max_safe_batch is None:
+            # Fallback: use cached GPU properties or check directly
+            if self._gpu_memory_gb is not None:
+                total_memory_gb = self._gpu_memory_gb
+                # Fallback logic (same as GPUCompatibilityChecker but inline)
+                if total_memory_gb < 30:  # RTX 4090, RTX 3090 (24GB)
+                    max_safe_batch = 25
+                elif total_memory_gb < 45:  # A6000, A40 (40-48GB)
+                    max_safe_batch = 75
+                else:  # A100, H100 (80GB+)
+                    max_safe_batch = 100
+            elif torch.cuda.is_available():
+                # Fallback: check GPU if not cached
+                try:
+                    props = torch.cuda.get_device_properties(self.device_id)
+                    total_memory_gb = props.total_memory / (1024**3)
+                    if total_memory_gb < 30:
+                        max_safe_batch = 25
+                    elif total_memory_gb < 45:
+                        max_safe_batch = 75
+                    else:
+                        max_safe_batch = 100
+                except Exception as e:
+                    print(f"[WARN] Failed to check GPU memory for batch_size validation: {e}")
+                    max_safe_batch = 25  # Conservative fallback
+            else:
+                # No GPU available - use very conservative limit
+                max_safe_batch = 20
+        
+        # Validate and adjust batch_size
+        if max_safe_batch is not None:
+            if warp_batch_size > max_safe_batch:
+                memory_str = f" for {total_memory_gb:.1f}GB GPU" if total_memory_gb else ""
+                print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds safe limit {max_safe_batch}{memory_str}")
+                print(f"[WARN] Reducing to {max_safe_batch} to prevent CUDA OOM")
+                warp_batch_size = max_safe_batch
+            elif warp_batch_size > max_safe_batch * 0.8:  # Warn if close to limit
+                memory_str = f" for {total_memory_gb:.1f}GB GPU" if total_memory_gb else ""
+                print(f"[INFO] warp_decode_batch_size {warp_batch_size} is close to safe limit {max_safe_batch}{memory_str}")
+
+        # Hard limit: never exceed 100 regardless of GPU (absolute safety net)
+        if warp_batch_size > 100:
+            print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds absolute maximum 100, capping to 100")
+            warp_batch_size = 100
+        
+        # Get OOM retry settings from config
+        max_oom_retries = getattr(self.cfg, 'max_oom_retries', 3)
+        auto_adjust_on_oom = getattr(self.cfg, 'auto_adjust_batch_size_on_oom', True)
+        current_batch_size = warp_batch_size
+        original_batch_size = warp_batch_size
+
+        for start in range(0, n_frames, current_batch_size):
+            end = min(start + current_batch_size, n_frames)
+            retry_count = 0
+            
+            while retry_count <= max_oom_retries:
+                try:
+                    with torch.no_grad(), torch.autocast('cuda'):
+                        out = self.warp_decode(f_s_s[start:end], x_s_s[start:end], x_d_i_new[start:end])        
+                        I_p_lst.append(out['out'])
+                    
+                    # Success - if batch_size was reduced during retry, persist it for next batches
+                    if retry_count > 0 and current_batch_size < warp_batch_size:
+                        warp_batch_size = current_batch_size
+                        print(f"[INFO] Persisting reduced batch_size {warp_batch_size} for remaining batches (was {original_batch_size})")
+                    break  # Success, exit retry loop
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower() and retry_count < max_oom_retries and auto_adjust_on_oom:
+                        retry_count += 1
+                        current_batch_size = max(10, current_batch_size // 2)
+                        end = min(start + current_batch_size, n_frames)
+                        torch.cuda.empty_cache()
+                        print(f"[WARN] CUDA OOM at batch {start}-{end}, reducing batch_size to {current_batch_size} (retry {retry_count}/{max_oom_retries})")
+                    else:
+                        raise  # Re-raise if not OOM or max retries reached
+            
+            # Clear GPU cache between batches
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         I_p=torch.cat(I_p_lst, dim=0) 
         I_p_i = self.parse_output(I_p)
         return I_p_i 
@@ -1022,15 +1189,31 @@ class MotionProcesser(object):
         return recs
 
     def save_results(self, results, save_path, audio_path=None):
-        save_dir = osp.dirname(save_path)
-        save_name = osp.basename(save_path)
-        final_video = osp.join(save_dir, f'final_{save_name}')
-
-        images2video(results, wfp=save_path, fps=self.cfg.output_fps)
-
+        # Pass video encoding parameters from config (Telegram optimized)
+        video_kwargs = {
+            'fps': self.cfg.output_fps,
+            'crf': getattr(self.cfg, 'crf', 18),        # Default 18 if not in config
+            'codec': getattr(self.cfg, 'codec', 'libx264'),
+            'preset': getattr(self.cfg, 'preset', 'medium'),
+            'format': getattr(self.cfg, 'output_format', 'mp4')
+        }
+        
         if audio_path is not None:
-            add_audio_to_video(save_path, audio_path, final_video)
-            os.remove(save_path)
+            # Create video with audio directly using temporary intermediate file
+            import tempfile
+            save_dir = osp.dirname(save_path) or '.'
+            with tempfile.NamedTemporaryFile(suffix='.mp4', dir=save_dir, delete=False) as tmp_file:
+                temp_video_path = tmp_file.name
+            
+            # Generate video without audio to temp file
+            images2video(results, wfp=temp_video_path, **video_kwargs)
+            # Combine with audio and save to final path
+            add_audio_to_video(temp_video_path, audio_path, save_path)
+            # Cleanup temp file
+            os.remove(temp_video_path)
+        else:
+            # No audio - just save video directly
+            images2video(results, wfp=save_path, **video_kwargs)
     
     def rec_score(self, video_path: str, interval=None, save_path=None):
         video_frames = self.read_video(video_path, interval=interval)

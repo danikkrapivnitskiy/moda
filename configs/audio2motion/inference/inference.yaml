@@ -1,5 +1,27 @@
+# Inference Configuration
+# NOTE: Parameters below serve as FALLBACK DEFAULTS.
+# If runpod_config.yaml is available, values from runpod_config.yaml will override these defaults.
+# This ensures backward compatibility and allows direct usage without runpod_server.py.
+# For production, use runpod_config.yaml as the single source of truth.
 
+# Default values (overridden by runpod_config.yaml if available)
 output_fps: 25
+device_id: 0
+batch_size: 10
+source_max_dim: 512
+source_division: 2
+input_height: 256
+input_width: 256
+source_fps: 25
+min_video_length: 50
+max_video_length: 500
+
+# Video encoding quality defaults (overridden by runpod_config.yaml if available)
+crf: 25
+codec: "libx264"
+preset: "faster"
+output_format: "mp4"
+
 ## appearance and motion feature extractor
 appearance_feature_extractor_path:  pretrain_weights/decode/v1/first_stage/base_models/appearance_feature_extractor.pth
 motion_extractor_path: pretrain_weights/decode/v1/first_stage/base_models/motion_extractor.pth
@@ -8,7 +30,6 @@ spade_generator_path: pretrain_weights/decode/v1/first_stage/base_models/spade_g
 warping_module_path:  pretrain_weights/decode/v1/first_stage/base_models/warping_module.pth
 ## stitching retargeting module
 stitching_retargeting_module_path:  pretrain_weights/decode/v1/first_stage/retargeting_models/stitching_retargeting_module.pth
-#
 
 # audio processer config
 audio_model_config: configs/audio2motion/model/audio_processer_config.yaml
@@ -21,15 +42,3 @@ motion_models_config: configs/audio2motion/model/config.yaml
 use_ref_kp: False
 motion_generator_path: pretrain_weights/moda/net-200.pth
 need_normalized: True
-
-# other configs
-device_id: 0
-batch_size: 100
-
-source_max_dim: 1280 # the max dim of height and width of source image or video
-source_division: 2 # make sure the height and width of source image or video can be divided by this number
-input_height: 256
-input_width: 256
-source_fps: 25
-min_video_length: 50
-max_video_length: 500

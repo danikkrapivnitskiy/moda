@@ -1,0 +1,436 @@
+---
+globs: src/services/*.ts
+description: Guidelines for creating and maintaining service layer components
+---
+
+# Microsoft Enterprise Service Layer Guidelines
+
+## Enterprise Service Architecture
+
+All services in [src/services/](mdc:src/services) follow **Microsoft enterprise patterns**:
+
+1. Single responsibility principle - Enterprise separation of concerns
+2. Exported as singleton instances - Enterprise resource management
+3. Async methods with explicit return types - Enterprise type safety
+4. Comprehensive error handling and logging - Enterprise reliability
+5. Performance tracking (duration metrics) - Enterprise monitoring
+6. **Microsoft Azure integration** ready - Enterprise cloud deployment
+
+## Existing Services
+
+### STT Service ([stt.service.ts](mdc:src/services/stt.service.ts))
+
+**Responsibility**: Speech-to-Text conversion using OpenAI Whisper
+
+**Key Methods**:
+
+- `transcribe(audioFilePath: string): Promise<string>` - Main transcription
+- `validateAudioFile(filePath: string): Promise<boolean>` - File validation
+
+**Error Type**: `STTError`
+
+**Notes**:
+
+- Max file size: 25MB (Whisper API limit)
+- Supports: OGG, MP3, WAV, M4A formats
+- Always validate file before transcription
+
+---
+
+### LLM Service ([llm.service.ts](mdc:src/services/llm.service.ts))
+
+**Responsibility**: AI response generation with conversation memory
+
+**Key Methods**:
+
+- `generateResponse(text: string, chatId: number): Promise<string>` - Generate AI response
+- `clearHistory(chatId: number): void` - Clear conversation history
+- `getStats()` - Get conversation statistics
+
+**Key Components**:
+
+- `ConversationStore` - In-memory conversation storage (Map-based)
+- Maintains window of last N messages (configurable via CONVERSATION_WINDOW)
+- Auto-trims old messages to maintain memory bounds
+
+**Error Type**: `LLMError`
+
+**Notes**:
+
+- System prompt configured in [openai.ts](mdc:src/config/openai.ts)
+- Conversation history includes user + assistant messages
+- Consider Redis for production/horizontal scaling
+
+---
+
+### TTS Service ([tts.service.ts](mdc:src/services/tts.service.ts))
+
+**Responsibility**: Text-to-Speech conversion using OpenAI TTS
+
+**Key Methods**:
+
+- `textToSpeech(text: string): Promise<string>` - Convert text to MP3 audio
+- `validateText(text: string): {valid: boolean, reason?: string}` - Text validation
+
+**Error Type**: `TTSError`
+
+**Notes**:
+
+- Max text length: 4096 characters (OpenAI limit)
+- Voice selection from config (OPENAI_CONFIG.tts.voice)
+- Returns path to generated MP3 file in tmp/
+- Files must be cleaned up by caller
+
+---
+
+### Media Service ([media.service.ts](mdc:src/services/media.service.ts))
+
+**Responsibility**: File download, conversion, and management
+
+**Key Methods**:
+
+- `downloadTelegramFile(bot: Bot, fileId: string): Promise<string>` - Download from Telegram
+- `convertToMp3(inputPath: string): Promise<string>` - Convert audio to MP3
+- `getAudioDuration(filePath: string): Promise<number>` - Get audio duration
+- `deleteFile(filePath: string): Promise<void>` - Delete single file
+- `deleteFiles(filePaths: string[]): Promise<void>` - Delete multiple files
+- `validateMediaFile(filePath: string): Promise<boolean>` - Validate file
+
+**Error Type**: `MediaError`
+
+**Notes**:
+
+- Uses FFmpeg for audio conversion
+- Downloads to tmp/ directory
+- Always validate files before processing
+- Clean up files after use
+
+---
+
+### Video Service ([video.service.ts](mdc:src/services/video.service.ts))
+
+**Responsibility**: Video note generation with audio visualization
+
+**Key Methods**:
+
+- `createVideoNote(audioPath: string): Promise<string>` - Create video note (auto-selects style)
+- `createWaveformVideo(audioPath: string): Promise<string>` - Waveform visualization (2-5s)
+- `createSimpleVideo(audioPath: string): Promise<string>` - Static background (1-2s)
+- `createBrandedVideo(audioPath: string): Promise<string>` - Frequency bars (3-6s)
+- `getVideoDuration(filePath: string): Promise<number>` - Get video duration
+- `validateVideoFile(filePath: string): Promise<boolean>` - Validate video
+
+**Error Type**: `VideoError`
+
+**Video Specifications**:
+
+- Size: 512x512 pixels (Telegram circular video standard)
+- Format: MP4 with H.264 video codec, AAC audio codec
+- Frame rate: 25 fps
+- Audio bitrate: 128k
+
+**Style Selection**:
+Style is determined by `VIDEO_STYLE` environment variable:
+
+- `waveform` - Animated audio waveform (most visually appealing)
+- `simple` - Static colored background (fastest generation)
+- `branded` - Frequency bars visualization (alternative style)
+
+**Notes**:
+
+- Uses FFmpeg with complex filters
+- Output filename: `{input}-video.mp4`
+- Always clean up video files after sending
+
+## Creating New Services
+
+### Service Template
+
+```typescript
+/**
+ * [Service Name] Service
+ * [Brief description of responsibility]
+ */
+import { logger } from '../utils/logger';
+import { CustomError } from '../utils/errorHandler';
+import { getTempFilePath } from '../utils/fileUtils';
+
+export class ServiceNameService {
+  /**
+   * [Method description]
+   * @param param - Parameter description
+   * @returns Description of return value
+   */
+  async methodName(param: Type): Promise<ReturnType> {
+    const startTime = Date.now();
+
+    try {
+      logger.info('Operation started', { param });
+
+      // Validation
+      if (!param) {
+        throw new Error('Invalid parameter');
+      }
+
+      // Main logic
+      const result = await performOperation(param);
+
+      // Success metrics
+      const duration = Date.now() - startTime;
+      logger.info('Operation completed', {
+        duration,
+        resultInfo: getRelevantInfo(result),
+      });
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error('Operation failed', {
+        duration,
+        param,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      throw new CustomError(`Operation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+}
+
+// Export singleton instance
+export const serviceNameService = new ServiceNameService();
+```
+
+### Service Checklist
+
+When creating a new service:
+
+1. **Structure**
+   - [ ] Class-based with PascalCase name
+   - [ ] Export singleton instance with camelCase
+   - [ ] All methods are async (if I/O operations)
+   - [ ] Explicit return types on all methods
+
+2. **Error Handling**
+   - [ ] Custom error class in [errorHandler.ts](mdc:src/utils/errorHandler.ts)
+   - [ ] Try-catch blocks around all operations
+   - [ ] Meaningful error messages
+   - [ ] Error context logging
+
+3. **Logging**
+   - [ ] Start of operation logging with parameters
+   - [ ] Success logging with duration and results
+   - [ ] Error logging with duration and context
+   - [ ] No sensitive data in logs (API keys, tokens)
+
+4. **Performance**
+   - [ ] Track operation duration
+   - [ ] Log duration metrics
+   - [ ] Consider parallel operations where possible
+   - [ ] Clean up resources (files, connections)
+
+5. **Validation**
+   - [ ] Input validation
+   - [ ] File validation (if applicable)
+   - [ ] Size limits (if applicable)
+   - [ ] Format validation (if applicable)
+
+6. **Documentation**
+   - [ ] JSDoc comments on class and methods
+   - [ ] Parameter descriptions
+   - [ ] Return value descriptions
+   - [ ] Usage examples in comments
+
+7. **Testing Considerations**
+   - [ ] Dependency injection friendly
+   - [ ] Mockable dependencies
+   - [ ] Predictable error handling
+
+## Service Dependencies
+
+### Common Dependencies
+
+- `logger` from [utils/logger.ts](mdc:src/utils/logger.ts) - Always use for logging
+- `config` from [config/env.ts](mdc:src/config/env.ts) - Configuration access
+- `openai` from [config/openai.ts](mdc:src/config/openai.ts) - OpenAI client
+- File utilities from [utils/fileUtils.ts](mdc:src/utils/fileUtils.ts)
+
+### Service Interactions
+
+```
+Controller
+    ↓
+┌───────────────────────────────────────┐
+│  Service Layer                        │
+│                                       │
+│  Media Service ──→ STT Service        │
+│       ↓                ↓              │
+│  Video Service ←── LLM Service        │
+│       ↑                ↓              │
+│       └────────── TTS Service         │
+└───────────────────────────────────────┘
+```
+
+**Flow Example** (Voice Message):
+
+1. Media Service downloads file
+2. STT Service transcribes audio
+3. LLM Service generates response
+4. TTS Service creates audio response
+5. Video Service creates video note
+6. Media Service cleans up files
+
+## Performance Guidelines
+
+### Track All Operations
+
+```typescript
+// ✅ Good - track duration
+const startTime = Date.now();
+const result = await operation();
+const duration = Date.now() - startTime;
+logger.info('Completed', { duration });
+```
+
+### Parallel Operations When Possible
+
+```typescript
+// ✅ Good - parallel independent operations
+const [prompt, history] = await Promise.all([loadSystemPrompt(), loadUserHistory(chatId)]);
+
+// ❌ Bad - sequential when parallel is possible
+const prompt = await loadSystemPrompt();
+const history = await loadUserHistory(chatId);
+```
+
+### Resource Cleanup
+
+```typescript
+// ✅ Good - always cleanup
+try {
+  const file = await createTempFile();
+  return await processFile(file);
+} finally {
+  await deleteFile(file);
+}
+```
+
+## Error Handling Patterns
+
+### Service-Level Errors
+
+```typescript
+// ✅ Good - specific error with context
+catch (error) {
+  logger.error('Transcription failed', {
+    audioPath,
+    fileSize: await getFileSize(audioPath),
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw new STTError(`Failed to transcribe: ${error.message}`);
+}
+```
+
+### Validation Errors
+
+```typescript
+// ✅ Good - early validation
+if (!(await this.validateAudioFile(filePath))) {
+  throw new STTError('Invalid audio file');
+}
+```
+
+## Common Pitfalls
+
+### ❌ Don't Forget File Cleanup
+
+```typescript
+// ❌ Bad - file leak
+async function process() {
+  const file = getTempFilePath('mp3');
+  await createFile(file);
+  return file; // File never cleaned up!
+}
+
+// ✅ Good - caller manages cleanup
+async function process(): Promise<string> {
+  const file = getTempFilePath('mp3');
+  await createFile(file);
+  return file; // Caller will clean up
+}
+```
+
+### ❌ Don't Log Sensitive Data
+
+```typescript
+// ❌ Bad
+logger.info('API call', { apiKey: config.openai.apiKey });
+
+// ✅ Good
+logger.info('API call', { model: config.openai.model });
+```
+
+### ❌ Don't Swallow Errors
+
+```typescript
+// ❌ Bad
+try {
+  await operation();
+} catch (error) {
+  logger.error('Error', { error });
+  return null; // Error lost!
+}
+
+// ✅ Good
+try {
+  await operation();
+} catch (error) {
+  logger.error('Error', { error });
+  throw new CustomError('Operation failed');
+}
+```
+
+## Integration with Controllers
+
+Services are called from [webhook.controller.ts](mdc:src/controllers/webhook.controller.ts):
+
+```typescript
+// Controller manages the flow
+const filesToCleanup: string[] = [];
+try {
+  // 1. Download
+  const voiceFile = await mediaService.downloadTelegramFile(bot, fileId);
+  filesToCleanup.push(voiceFile);
+
+  // 2. Transcribe
+  const text = await sttService.transcribe(voiceFile);
+
+  // 3. Generate response
+  const response = await llmService.generateResponse(text, chatId);
+
+  // 4. Create audio
+  const audioFile = await ttsService.textToSpeech(response);
+  filesToCleanup.push(audioFile);
+
+  // 5. Create video
+  const videoFile = await videoService.createVideoNote(audioFile);
+  filesToCleanup.push(videoFile);
+
+  // 6. Send
+  await ctx.replyWithVideoNote(new InputFile(videoFile));
+} finally {
+  await mediaService.deleteFiles(filesToCleanup);
+}
+```
+
+## Best Practices Summary
+
+1. ✅ Single responsibility per service
+2. ✅ Export singleton instances
+3. ✅ Always use try-catch
+4. ✅ Always log with context
+5. ✅ Always track duration
+6. ✅ Always validate inputs
+7. ✅ Always clean up resources
+8. ✅ Use custom error types
+9. ✅ Return promises directly (no return await except in try-catch)
+10. ✅ Make services testable with dependency injection

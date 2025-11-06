@@ -1,0 +1,450 @@
+---
+globs: *.ts,*.tsx
+description: TypeScript coding conventions and best practices for this project
+---
+
+# Microsoft Enterprise TypeScript Conventions
+
+## Enterprise Code Style
+
+### Enterprise-Strict TypeScript
+
+- Always use strict mode (enabled in tsconfig.json) - Microsoft enterprise standard
+- No implicit `any` types - Enterprise type safety requirement
+- Explicit return types on all functions - Enterprise code clarity
+- Use interfaces over type aliases when possible - Enterprise maintainability
+- **Microsoft TypeScript guidelines** compliance required
+
+### Naming Conventions
+
+- **Files**: camelCase (e.g., `sttService.ts`, `webhookController.ts`)
+- **Classes**: PascalCase (e.g., `STTService`, `LLMService`)
+- **Functions**: camelCase (e.g., `transcribe()`, `generateResponse()`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `OPENAI_CONFIG`, `MAX_FILE_SIZE`)
+- **Interfaces**: PascalCase (e.g., `Config`, `ConversationMessage`)
+- **Types**: PascalCase (e.g., `TTSVoice`, `LogLevel`)
+
+### Import Order
+
+```typescript
+// 1. External dependencies
+import express from 'express';
+import { Bot } from 'grammy';
+
+// 2. Internal dependencies (config, services, utils)
+import { config } from '../config/env';
+import { openai } from '../config/openai';
+import { sttService } from '../services/stt.service';
+
+// 3. Types
+import { ConversationMessage } from '../types';
+
+// 4. Utilities
+import { logger } from '../utils/logger';
+```
+
+## Async/Await Best Practices
+
+### Always Use Async/Await
+
+```typescript
+// ✅ Good
+async function processMessage(text: string): Promise<string> {
+  const response = await llmService.generateResponse(text);
+  return response;
+}
+
+// ❌ Bad - don't use callbacks
+function processMessage(text: string, callback: (response: string) => void) {
+  llmService.generateResponse(text).then(callback);
+}
+```
+
+### Avoid Return Await
+
+```typescript
+// ✅ Good - return promise directly
+async function getData(): Promise<Data> {
+  return fetchData();
+}
+
+// ❌ Bad - unnecessary await
+async function getData(): Promise<Data> {
+  return await fetchData();
+}
+```
+
+### Exception: Use await when in try-catch
+
+```typescript
+// ✅ Good - await needed for error handling
+async function getData(): Promise<Data> {
+  try {
+    return await fetchData();
+  } catch (error) {
+    logger.error('Failed', { error });
+    throw new CustomError('Error');
+  }
+}
+```
+
+## Error Handling
+
+### Use Custom Error Classes
+
+```typescript
+// ✅ Good
+import { STTError } from '../utils/errorHandler';
+
+try {
+  const result = await transcribe(file);
+} catch (error) {
+  throw new STTError(`Transcription failed: ${error.message}`);
+}
+```
+
+### Always Log Errors with Context
+
+```typescript
+// ✅ Good
+catch (error) {
+  logger.error('Operation failed', {
+    operation: 'transcribe',
+    filePath,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw new STTError('Transcription failed');
+}
+
+// ❌ Bad - no context
+catch (error) {
+  throw new Error('Failed');
+}
+```
+
+## Function Signatures
+
+### Always Specify Return Types
+
+```typescript
+// ✅ Good
+async function transcribe(audioPath: string): Promise<string> {
+  // ...
+}
+
+function formatLog(level: string, message: string): string {
+  // ...
+}
+
+// ❌ Bad - missing return type
+async function transcribe(audioPath: string) {
+  // ...
+}
+```
+
+### Use Readonly for Non-Mutated Properties
+
+```typescript
+// ✅ Good
+class ConversationStore {
+  private readonly conversations = new Map<number, Message[]>();
+}
+
+// ❌ Bad
+class ConversationStore {
+  private conversations = new Map<number, Message[]>();
+}
+```
+
+## Type Safety
+
+### Use Type Guards
+
+```typescript
+// ✅ Good
+if (error instanceof AppError) {
+  return handleOperationalError(error);
+}
+
+if (typeof response === 'string') {
+  return response.trim();
+}
+```
+
+### Use Union Types for Known Values
+
+```typescript
+// ✅ Good
+type VideoStyle = 'waveform' | 'simple' | 'branded';
+type TTSVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+
+// ❌ Bad
+type VideoStyle = string;
+```
+
+### Use Interfaces for Object Shapes
+
+```typescript
+// ✅ Good
+interface ProcessingStats {
+  downloadDuration?: number;
+  sttDuration?: number;
+  llmDuration?: number;
+  totalDuration: number;
+}
+
+// ❌ Bad
+type ProcessingStats = {
+  downloadDuration: number | undefined;
+  // ...
+};
+```
+
+## Logging
+
+### Always Include Context
+
+```typescript
+// ✅ Good
+logger.info('Processing message', {
+  chatId,
+  userId,
+  messageType: 'text',
+  textLength: text.length,
+});
+
+// ❌ Bad
+logger.info('Processing message');
+```
+
+### Use Appropriate Log Levels
+
+```typescript
+logger.error('Critical failure', { error }); // For errors
+logger.warn('Potential issue', { data }); // For warnings
+logger.info('Normal operation', { stats }); // For info
+logger.debug('Detailed debug', { details }); // For debug
+```
+
+## File Operations
+
+### Always Clean Up Files
+
+```typescript
+// ✅ Good
+const filesToCleanup: string[] = [];
+try {
+  const file1 = await createFile();
+  filesToCleanup.push(file1);
+
+  const file2 = await processFile(file1);
+  filesToCleanup.push(file2);
+
+  return file2;
+} catch (error) {
+  throw error;
+} finally {
+  await mediaService.deleteFiles(filesToCleanup);
+}
+```
+
+### Use Utility Functions
+
+```typescript
+// ✅ Good - use provided utilities
+import { getTempFilePath, deleteFile } from '../utils/fileUtils';
+
+const filePath = getTempFilePath('mp3');
+
+// ❌ Bad - don't create custom path logic
+const filePath = `tmp/${Date.now()}.mp3`;
+```
+
+## Configuration
+
+### Use Environment Config
+
+```typescript
+// ✅ Good
+import { config } from '../config/env';
+
+const port = config.port;
+const apiKey = config.openai.apiKey;
+
+// ❌ Bad - don't access process.env directly
+const port = process.env.PORT;
+```
+
+### Use OpenAI Config Constants
+
+```typescript
+// ✅ Good
+import { OPENAI_CONFIG } from '../config/openai';
+
+const response = await openai.audio.transcriptions.create({
+  model: OPENAI_CONFIG.whisper.model,
+  language: OPENAI_CONFIG.whisper.language,
+});
+
+// ❌ Bad - hardcoded values
+const response = await openai.audio.transcriptions.create({
+  model: 'whisper-1',
+  language: 'en',
+});
+```
+
+## Service Pattern
+
+### Export Singleton Instance
+
+```typescript
+// ✅ Good
+export class STTService {
+  async transcribe(audioPath: string): Promise<string> {
+    // ...
+  }
+}
+
+export const sttService = new STTService();
+
+// Usage: import { sttService } from '../services/stt.service';
+```
+
+### Method Structure
+
+```typescript
+async methodName(param: Type): Promise<ReturnType> {
+  const startTime = Date.now();
+
+  try {
+    logger.info('Operation started', { param });
+
+    // Validation
+    if (!param) {
+      throw new CustomError('Invalid param');
+    }
+
+    // Main logic
+    const result = await doSomething(param);
+
+    // Success logging
+    const duration = Date.now() - startTime;
+    logger.info('Operation completed', { duration, result });
+
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Operation failed', { duration, error });
+    throw new CustomError(`Operation failed: ${error.message}`);
+  }
+}
+```
+
+## FFmpeg Callbacks
+
+### Type FFmpeg Callbacks
+
+```typescript
+// ✅ Good - explicitly type callbacks
+ffmpeg(inputPath)
+  .on('start', (command: string) => {
+    logger.debug('FFmpeg started', { command });
+  })
+  .on('error', (error: Error) => {
+    logger.error('FFmpeg failed', { error: error.message });
+    reject(error);
+  })
+  .on('end', () => {
+    logger.info('FFmpeg completed');
+    resolve(outputPath);
+  });
+```
+
+## Don'ts
+
+### Don't Use Classes for Everything
+
+```typescript
+// ❌ Bad - unnecessary class
+class Utils {
+  static formatDate(date: Date): string {
+    return date.toISOString();
+  }
+}
+
+// ✅ Good - simple function
+export function formatDate(date: Date): string {
+  return date.toISOString();
+}
+```
+
+### Don't Use Builder Pattern
+
+```typescript
+// ❌ Bad - avoid returning 'this'
+class Builder {
+  setProperty(value: string): this {
+    this.property = value;
+    return this;
+  }
+}
+
+// ✅ Good - separate functions
+function setProperty(obj: Object, value: string): void {
+  obj.property = value;
+}
+```
+
+### Don't Use console.log Directly
+
+```typescript
+// ❌ Bad
+console.log('Message processed');
+
+// ✅ Good - use logger
+logger.info('Message processed', { chatId });
+```
+
+## Performance Tips
+
+### Avoid Unnecessary Awaits
+
+```typescript
+// ✅ Good - parallel execution
+const [result1, result2] = await Promise.all([operation1(), operation2()]);
+
+// ❌ Bad - sequential execution
+const result1 = await operation1();
+const result2 = await operation2();
+```
+
+### Use Appropriate Data Structures
+
+```typescript
+// ✅ Good - Map for lookups
+const conversations = new Map<number, Message[]>();
+
+// ❌ Bad - Array for lookups
+const conversations: Array<{ id: number; messages: Message[] }> = [];
+```
+
+## Testing Considerations
+
+### Write Testable Code
+
+```typescript
+// ✅ Good - dependency injection friendly
+export function createService(openaiClient: OpenAI) {
+  return {
+    async transcribe(file: string) {
+      return openaiClient.audio.transcriptions.create(/*...*/);
+    },
+  };
+}
+
+// ❌ Bad - hard to test
+import { openai } from '../config/openai';
+export function transcribe(file: string) {
+  return openai.audio.transcriptions.create(/*...*/);
+}
+```

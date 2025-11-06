@@ -26,15 +26,26 @@ resnet_weight_path: "pretrain_weights/face/face-parsing/resnet18-5c106cde.pth"
 # motion template
 need_normalized: True
 
-# others
-batch_size: 100
-source_max_dim: 1920 # the max dim of height and width of source image or video
-source_division: 2 # make sure the height and width of source image or video can be divided by this number
+# Motion Processor Configuration
+# NOTE: Parameters below serve as FALLBACK DEFAULTS.
+# If runpod_config.yaml is available, values from runpod_config.yaml will override these defaults.
+# This ensures backward compatibility and allows direct usage without runpod_server.py.
+# For production, use runpod_config.yaml as the single source of truth.
+
+# Default values (overridden by runpod_config.yaml if available)
+batch_size: 10
+warp_decode_batch_size: 20
+source_max_dim: 512
+source_division: 2
 input_height: 256
 input_width: 256
 output_height: 512
 output_width: 512
 output_fps: 25
+
+# Video encoding quality defaults (overridden by runpod_config.yaml if available)
+crf: 25
+preset: "faster"
 
 # driving params
 flag_do_torch_compile: False

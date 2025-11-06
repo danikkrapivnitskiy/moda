@@ -30,7 +30,15 @@ def images2video(images, wfp, **kwargs):
     pixelformat = kwargs.get('pixelformat', 'yuv420p')  # video pixel format
     image_mode = kwargs.get('image_mode', 'rgb')
     macro_block_size = kwargs.get('macro_block_size', 2)
+    
+    # Build ffmpeg params with CRF and preset
     ffmpeg_params = ['-crf', str(kwargs.get('crf', 18))]
+    
+    # Add preset for encoding speed control (faster/medium/slow)
+    # faster = faster encoding, slightly lower compression
+    # slow = slower encoding, better compression
+    preset = kwargs.get('preset', 'medium')
+    ffmpeg_params.extend(['-preset', preset])
 
     writer = imageio.get_writer(
         wfp, fps=fps, format=video_format,

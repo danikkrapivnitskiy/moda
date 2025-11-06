@@ -1,0 +1,44 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Python
+*.py text eol=lf
+*.pyx text eol=lf
+*.pyi text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Config files
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+
+# Docker
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+
+# Git
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary
+*.wav binary
+*.npy binary
+*.pth binary
+*.safetensors binary
+*.bin binary
+*.zip binary
+*.tar.gz binary
+*.whl binary
+*.pt binary
+*.pkl binary
+

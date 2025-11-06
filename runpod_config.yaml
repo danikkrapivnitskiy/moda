@@ -1,0 +1,114 @@
+# RunPod serverless handler configuration
+# Enterprise Configuration - Single Source of Truth
+# All parameters defined here are automatically merged into nested configs at runtime
+
+# MoDA model configuration
+runpod:
+  model_name: "MoDA"
+  version: "1.0.0"
+
+# Paths
+inference_config_path: "configs/audio2motion/inference/inference.yaml"
+motion_mean_std_path: "src/datasets/mean.pt"
+
+# Model paths (used by ensure_models_downloaded)
+paths:
+  pretrain_weights: "/workspace/pretrain_weights"
+  models_cache: "/app/models_cache"
+
+# ============================================================================
+# INFERENCE CONFIGURATION
+# These parameters are merged into inference.yaml at runtime
+# Optimized for A6000/A40 48GB GPU ($0.00034/sec = $1.22/hr)
+# ============================================================================
+inference:
+  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
+                  # A6000/A40 has 48GB memory → can safely handle 75 batch size
+  device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
+  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
+                       # Still fast enough for real-time generation
+  source_division: 2  # make sure the height and width of source image or video can be divided by this number
+  input_height: 256
+  input_width: 256
+  output_fps: 25
+  source_fps: 25
+  min_video_length: 50
+  max_video_length: 1000  # 40 seconds at 25fps (A6000/A40 48GB limit)
+                           # Increased from 500 (20 sec) → can handle longer videos
+
+# ============================================================================
+# MOTION PROCESSOR CONFIGURATION
+# These parameters are merged into liveportrait_config.yaml at runtime
+# Optimized for A6000/A40 48GB GPU
+# ============================================================================
+motion_processor:
+  batch_size: 75  # Increased from 50 → 30% faster for A6000/A40 48GB
+                  # A6000/A40 has 48GB memory → can handle larger batches safely
+  warp_decode_batch_size: 100  # Increased from 75 → faster warp_decode on A6000/A40 48GB
+                               # A6000/A40 can handle larger batches for warp_decode processing
+  source_max_dim: 640  # Increased from 512 → better quality (25% more pixels)
+  source_division: 2  # make sure the height and width of source image or video can be divided by this number
+  input_height: 256
+  input_width: 256
+  output_height: 640  # Increased from 512 → better quality for Telegram
+  output_width: 640   # Increased from 512 → better quality for Telegram
+  output_fps: 25
+
+# ============================================================================
+# VIDEO QUALITY SETTINGS
+# These parameters control video encoding quality (Telegram optimized)
+# ============================================================================
+video_quality:
+  crf: 23              # Reduced from 25 → better quality with minimal speed impact
+                       # CRF 23 = good balance between quality and file size
+                       # Lower CRF = better quality (18=best, 28=medium)
+  codec: "libx264"     # H.264 video codec
+  preset: "faster"     # Encoding speed preset (faster/medium/slow)
+  pixelformat: "yuv420p"  # Pixel format for compatibility
+  output_format: "mp4" # Output format
+
+# ============================================================================
+# PERFORMANCE OPTIMIZATION SETTINGS
+# These parameters control performance optimizations for A6000/A40 48GB
+# ============================================================================
+performance:
+  enable_torch_compile: True  # Enable torch.compile for 20-30% speedup on A6000/A40
+                              # Maps to flag_do_torch_compile in liveportrait_config.yaml
+  use_half_precision: True    # FP16 for faster inference on A6000/A40
+                              # Maps to flag_use_half_precision in liveportrait_config.yaml
+  max_video_length: 1000      # 40 seconds max for A6000/A40 48GB
+                              # Can be overridden by inference.max_video_length if set
+
+# ============================================================================
+# MEMORY OPTIMIZATION SETTINGS
+# These parameters control GPU memory management
+# ============================================================================
+memory_optimization:
+  pytorch_cuda_alloc_conf: "expandable_segments:True"  # Reduces CUDA memory fragmentation
+                                                        # Critical for A6000/A40 48GB with large models
+
+# ============================================================================
+# GPU COMPATIBILITY SETTINGS
+# These parameters control automatic GPU compatibility handling
+# ============================================================================
+compatibility:
+  auto_disable_torch_compile_on_old_gpu: True  # Auto-disable if compute capability < 7.0
+  auto_disable_fp16_on_old_gpu: True          # Auto-disable if compute capability < 7.0
+  auto_adjust_batch_size_on_oom: True         # Auto-reduce batch_size on CUDA OOM
+  max_oom_retries: 3                          # Max retries with reduced batch_size
+  max_batch_size_by_memory:                   # Recommended max batch_size by GPU memory (GB)
+    24: 25    # RTX 4090, RTX 3090
+    40: 50    # A6000, A40
+    48: 75    # A6000 48GB, A40 48GB
+    80: 100   # A100
+
+# ============================================================================
+# RESOURCE LIMITS
+# These parameters control resource usage and validation
+# ============================================================================
+resource_limits:
+  max_image_size_mb: 10
+  max_audio_size_mb: 50
+  min_disk_space_gb: 10
+  audio_pad_duration: 2.0
+

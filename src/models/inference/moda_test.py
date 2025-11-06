@@ -38,13 +38,13 @@ import numpy as np
 def set_seed(seed: int = 42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # 如果使用多个 GPU
+    torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False  # 关闭 CuDNN 优化以保证可复现性
+    torch.backends.cudnn.benchmark = False  # Disable CuDNN optimization for reproducibility
 
-# 在推理前调用
+# Call before inference
 set_seed(42)
 
 class NullableArgs:
@@ -54,12 +54,16 @@ class NullableArgs:
 
 
 class LiveVASAPipeline(object):
-    def __init__(self, cfg_path: str, load_motion_generator: bool = True, motion_mean_std_path=None):
+    def __init__(self, cfg_path: str, load_motion_generator: bool = True, motion_mean_std_path=None, primary_config=None):
         """The pipeline for LiveVASA
         The pipeline for LiveVASA
 
         Args:
             cfg_path (str): YAML config file path of LiveVASA
+            load_motion_generator (bool): Whether to load motion generator
+            motion_mean_std_path (str, optional): Path to motion mean/std file
+            primary_config (DictConfig, optional): Primary configuration from runpod_config.yaml
+                                                  If provided, will be merged into nested configs
         """
         # pretrained encoders of live portrait
         cfg = OmegaConf.load(cfg_path)
@@ -80,8 +84,42 @@ class LiveVASAPipeline(object):
             self.motion_generator = None    
             log(f"Init motion_generator as None.")
         
-        # 3. load motion processer
-        self.motion_processer: MotionProcesser = MotionProcesser(cfg_path=cfg.motion_processer_config, device_id=cfg.device_id)
+        # 3. load motion processer with merged config if primary_config is provided
+        if primary_config is not None:
+            # Merge primary config into motion processor config
+            import sys
+            # Add src to path for imports (osp is already imported globally at line 3)
+            src_path = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
+            if src_path not in sys.path:
+                sys.path.insert(0, src_path)
+            
+            from utils.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            # Merge both motion_processor and performance sections
+            # When section=None, auto-detection will merge both for liveportrait configs
+            merged_motion_config = config_manager.merge_configs(
+                primary_config=primary_config,
+                nested_config_path=cfg.motion_processer_config,
+                section=None  # Auto-detect: will merge motion_processor and performance for liveportrait configs
+            )
+            
+            # Save merged config to temp file for MotionProcesser
+            import tempfile
+            temp_motion_cfg_path = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+            OmegaConf.save(merged_motion_config, temp_motion_cfg_path.name)
+            temp_motion_cfg_path.close()
+            
+            log(f"Using merged motion processor config from primary config")
+            self.motion_processer: MotionProcesser = MotionProcesser(
+                cfg_path=temp_motion_cfg_path.name,
+                device_id=cfg.device_id
+            )
+        else:
+            # Backward compatibility: use original config
+            self.motion_processer: MotionProcesser = MotionProcesser(
+                cfg_path=cfg.motion_processer_config,
+                device_id=cfg.device_id
+            )
         log(f"Load motion_processor done.")
 
 

@@ -1,0 +1,293 @@
+---
+alwaysApply: true
+description: Core project architecture and structure guidelines for Telegram Voice AI Bot
+---
+
+# Microsoft Enterprise Telegram Voice AI Bot - Project Architecture
+
+## Project Overview
+
+This is a **Microsoft Enterprise Telegram Voice AI Bot** - a multi-million dollar enterprise project that:
+
+- Accepts text, voice, and video note messages
+- Processes them through OpenAI (Whisper STT, GPT-4 LLM, TTS)
+- Responds with **circular video notes** (512x512) featuring audio visualization
+- Uses FFmpeg for video generation with 3 visualization styles: waveform, simple, branded
+- **Enterprise-grade architecture** with Microsoft Azure integration
+- **High-scale production deployment** with enterprise monitoring and compliance
+
+## Core Architecture Principles
+
+### Service-Oriented Architecture
+
+- **No classes for business logic** - use module.exports with dependency injection
+- All services are singletons exported from their files
+- Services are located in `src/services/`
+- Each service has a single responsibility
+
+### File Structure
+
+```
+src/
+├── config/           # Configuration and OpenAI client setup
+├── controllers/      # Webhook handlers (text, voice, video messages)
+├── services/         # Business logic (STT, LLM, TTS, Media, Video)
+├── utils/            # Utilities (logger, error handler, file utils)
+├── types/            # TypeScript type definitions
+├── scripts/          # Helper scripts (webhook management)
+└── index.ts          # Application entry point
+```
+
+## Key Services
+
+### 1. STT Service ([stt.service.ts](mdc:src/services/stt.service.ts))
+
+- Transcribes audio files using OpenAI Whisper
+- Validates audio files (max 25MB)
+- Supports OGG, MP3, WAV formats
+
+### 2. LLM Service ([llm.service.ts](mdc:src/services/llm.service.ts))
+
+- Generates AI responses using GPT-4
+- Maintains in-memory conversation history
+- Implements conversation window (last N messages)
+
+### 3. TTS Service ([tts.service.ts](mdc:src/services/tts.service.ts))
+
+- Converts text to speech using OpenAI TTS
+- Supports 6 voice options (alloy, echo, fable, onyx, nova, shimmer)
+- Max 4096 characters per request
+
+### 4. Media Service ([media.service.ts](mdc:src/services/media.service.ts))
+
+- Downloads files from Telegram servers
+- Converts audio formats using FFmpeg
+- Manages file cleanup
+
+### 5. Video Service ([video.service.ts](mdc:src/services/video.service.ts))
+
+- Creates circular video notes (512x512)
+- Three visualization styles: waveform, simple, branded
+- Uses FFmpeg for video generation
+
+## Message Processing Pipeline
+
+### Text Message Flow:
+
+```
+Text Input → LLM → TTS → Video Generation → Send Video Note
+```
+
+### Voice Message Flow:
+
+```
+Voice Input → Download → STT → LLM → TTS → Video Generation → Send Video Note
+```
+
+### Video Note Flow:
+
+```
+Video Note → Download → Extract Audio → STT → LLM → TTS → Video Generation → Send Video Note
+```
+
+## Configuration
+
+### Environment Variables ([env.ts](mdc:src/config/env.ts))
+
+All configuration is loaded from `.env` file with validation:
+
+- `TELEGRAM_BOT_TOKEN` - Telegram bot token
+- `OPENAI_API_KEY` - OpenAI API key (must start with `sk-`)
+- `WEBHOOK_URL` - Must end with `/webhook`
+- `VIDEO_STYLE` - waveform | simple | branded
+- `TTS_VOICE` - alloy | echo | fable | onyx | nova | shimmer
+- `CONVERSATION_WINDOW` - Number of messages in memory (default: 10)
+
+### OpenAI Client ([openai.ts](mdc:src/config/openai.ts))
+
+Configured OpenAI client with:
+
+- Automatic retries (3 attempts)
+- 60 second timeout
+- Exported constants for Whisper, GPT, and TTS
+
+## Error Handling
+
+### Custom Error Types ([errorHandler.ts](mdc:src/utils/errorHandler.ts))
+
+- `STTError` - Speech-to-text failures
+- `LLMError` - Language model failures
+- `TTSError` - Text-to-speech failures
+- `MediaError` - Media processing failures
+- `VideoError` - Video generation failures
+
+### Error Handling Strategy
+
+- Service-level try-catch blocks
+- User-friendly error messages sent to Telegram
+- Structured error logging with context
+- Automatic file cleanup on errors
+
+## Logging
+
+### Logger ([logger.ts](mdc:src/utils/logger.ts))
+
+- Structured logging with levels: error, warn, info, debug
+- Development: Colored console output
+- Production: JSON format
+- Never log sensitive data (API keys, tokens)
+
+### Log Context
+
+Always include:
+
+- `chatId` - Telegram chat ID
+- `userId` - Telegram user ID
+- `duration` - Operation duration in milliseconds
+- Error details when applicable
+
+## File Management
+
+### Temporary Files
+
+- Location: `tmp/` directory
+- Auto-cleanup on startup (files older than 24 hours)
+- Cleanup after each message processing
+- Use `getTempFilePath(extension)` for unique names
+
+### File Naming Convention
+
+```
+download-{timestamp}-{random}.ogg
+tts-{timestamp}-{random}.mp3
+{timestamp}-{random}-video.mp4
+```
+
+## TypeScript Guidelines
+
+### Type Safety
+
+- All functions must have explicit return types
+- Use interfaces from [types/index.ts](mdc:src/types/index.ts)
+- No `any` types except for FFmpeg callbacks
+- Enable strict mode in tsconfig.json
+
+### Async/Await
+
+- Always use async/await (not callbacks)
+- Handle errors with try-catch
+- Return promises directly (avoid `return await`)
+
+## Webhook Management
+
+### Entry Point ([index.ts](mdc:src/index.ts))
+
+- Express server on port 3000 (configurable)
+- POST `/webhook` - Telegram webhook endpoint
+- GET `/health` - Health check
+- GET `/status` - Detailed status with stats
+- Graceful shutdown handling
+
+### Controller ([webhook.controller.ts](mdc:src/controllers/webhook.controller.ts))
+
+Handlers for:
+
+- `message:text` - Text messages
+- `message:voice` - Voice messages
+- `message:video_note` - Video notes
+- Commands: `/start`, `/clear`, `/help`
+
+## Development Workflow
+
+### Local Development
+
+1. Start server: `npm run dev`
+2. Start ngrok: `ngrok http 3000`
+3. Update `WEBHOOK_URL` in `.env`
+4. Set webhook: `npm run webhook:set`
+
+### Scripts
+
+- `npm run dev` - Development server with hot reload
+- `npm run build` - Compile TypeScript
+- `npm start` - Production server
+- `npm run webhook:set` - Set Telegram webhook
+- `npm run webhook:info` - Check webhook status
+
+## Important Notes
+
+### Memory Management
+
+- Conversation history stored in-memory (Map)
+- Bounded by CONVERSATION_WINDOW setting
+- Consider Redis for horizontal scaling
+
+### Performance Considerations
+
+- Total response time: 10-20 seconds
+- STT: 2-5 seconds
+- LLM: 1-3 seconds
+- TTS: 1-3 seconds
+- Video generation: 2-5 seconds (waveform), 1-2 seconds (simple)
+
+### Dependencies
+
+- express - HTTP server
+- grammy - Telegram bot framework
+- openai - OpenAI API client
+- fluent-ffmpeg - FFmpeg wrapper
+- ffmpeg-static - FFmpeg binary
+
+## When Adding New Features
+
+1. **Create a service** in `src/services/` if it's business logic
+2. **Add types** to `src/types/index.ts`
+3. **Update controller** in `src/controllers/webhook.controller.ts`
+4. **Add error handling** with custom error types
+5. **Add logging** with appropriate context
+6. **Update documentation** in relevant .md files
+7. **Test manually** with Telegram bot
+
+## Common Patterns
+
+### Service Pattern
+
+```typescript
+export class ServiceName {
+  async methodName(param: Type): Promise<ReturnType> {
+    const startTime = Date.now();
+    try {
+      logger.info('Operation started', { param });
+      // Implementation
+      const duration = Date.now() - startTime;
+      logger.info('Operation completed', { duration });
+      return result;
+    } catch (error) {
+      logger.error('Operation failed', { error });
+      throw new CustomError('Error message');
+    }
+  }
+}
+
+export const serviceName = new ServiceName();
+```
+
+### File Cleanup Pattern
+
+```typescript
+const filesToCleanup: string[] = [];
+try {
+  const file = await generateFile();
+  filesToCleanup.push(file);
+  // Process file
+} finally {
+  await mediaService.deleteFiles(filesToCleanup);
+}
+```
+
+## References
+
+- [ARCHITECTURE.md](mdc:ARCHITECTURE.md) - Detailed architecture
+- [PROJECT_STRUCTURE.md](mdc:PROJECT_STRUCTURE.md) - File structure
+- [SERVER_MANAGEMENT.md](mdc:SERVER_MANAGEMENT.md) - Server operations
+- [VIDEO_NOTES_GUIDE.md](mdc:VIDEO_NOTES_GUIDE.md) - Video customization
