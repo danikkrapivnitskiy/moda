@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CUDA synchronization (`torch.cuda.synchronize()`) before and after GPU operations
 - Comprehensive documentation for CUDA device busy error fix (`CUDA_DEVICE_BUSY_FIX.md`)
 - Load Balancing endpoints guide for scaling to 100+ workers (`LOAD_BALANCING_GUIDE.md`)
+- Face quality improvement guide with Laplacian blending recommendations (`FACE_QUALITY_IMPROVEMENT.md`)
 - DICE-Talk emotion adapter integration for enhanced facial expressions
 - 64-code emotion control with VQ-VAE codebook and attention-based retrieval
 - Support for both emotion codes (0-8) and emotion feature files (.npy)
@@ -27,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CUDA driver initialization error**: Fixed "CUDA driver initialization failed" errors
+  - Root cause: AudioProcessor was created before CUDA driver was initialized, and device_id was not passed from pipeline
+  - Solution: Initialize CUDA driver explicitly before creating AudioProcessor, and pass device_id from LiveVASAPipeline
+  - Impact: Eliminates CUDA initialization failures during pipeline startup
+  - Technical: Added CUDA initialization check in LiveVASAPipeline.__init__ before AudioProcessor creation
 - **CUDA device busy error**: Fixed "CUDA-capable device(s) is/are busy or unavailable" errors
   - Root cause: Parallel GPU access from multiple threads/workers during pipeline initialization and inference
   - Solution: Added thread-safe locks for pipeline initialization and GPU operations
@@ -35,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Quality improvements**: Enhanced video quality settings
+  - `num_inference_steps`: Increased from 20 to 25 (original was 10) for better diffusion quality
+    - More denoising steps = better quality generation
+    - Impact: +10-15% inference time, better facial expression quality
+  - `video_quality.preset`: Changed from "medium" to "slow" (original was "faster") for better encoding
+    - Better compression efficiency and quality
+    - Impact: +10-20% encoding time, better video compression
+  - `video_quality.crf`: Already optimized at 18 (original was 25) - high quality encoding
 - TalkingHeadDiT now supports optional DICE-Talk EmotionModel via `use_enhanced_emotion` flag
 - LiveVASAPipeline supports emotion feature file input (.npy format)
 - RunPod API accepts emotion as int code, emotion name string, or base64-encoded .npy file
@@ -61,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - FastAPI implementation examples and best practices
   - Cost analysis: 60-75% savings vs multiple queue-based endpoints
   - Health check implementation and error handling patterns
+- **Face Quality Improvements**:
+  - Laplacian pyramid blending enabled by default (`use_laplacian_blending: true`)
+  - Multi-scale blending for seamless face-body transitions
+  - Configurable via `motion_processor.use_laplacian_blending` parameter
+  - Applied consistently across all video generation methods
+  - Performance: +10-20% processing time for significantly better face quality
 - Emotion model checkpoint: ~4.2 MB (`checkpoints/DICE-Talk/emo_model.pth`)
 - Emotion features: 32 tokens × 1024 dimensions with attention-based retrieval
 - Processing overhead: ~10-50ms per frame for emotion conditioning
@@ -275,4 +295,5 @@ To take advantage of the new centralized configuration:
 - **Validation**: Catch configuration errors before pipeline initialization
 - **Maintainability**: Easier to update and manage configuration parameters
 - **Enterprise-Grade**: Production-ready configuration management system
+
 

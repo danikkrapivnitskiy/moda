@@ -70,8 +70,45 @@ class LiveVASAPipeline(object):
         self.device_id = cfg.device_id
         self.device = f"cuda:{self.device_id}"
         
-        # 1 load audio processor
-        self.audio_processor: AudioProcessor = AudioProcessor(cfg_path=cfg.audio_model_config, is_training=False)
+        # CRITICAL: Ensure CUDA is ready before creating AudioProcessor
+        # AudioProcessor will try to load models to GPU immediately, so CUDA must be initialized
+        # In RunPod production environment, CPU fallback is not acceptable (10-100x slower)
+        if not torch.cuda.is_available():
+            error_msg = (
+                f"CUDA is not available! This is a production RunPod environment that requires GPU.\n"
+                f"CPU fallback would be 10-100x slower and is not acceptable.\n"
+                f"Please check:\n"
+                f"1. RunPod worker has GPU assigned\n"
+                f"2. CUDA drivers are properly installed in the container\n"
+                f"3. GPU is not locked by another process"
+            )
+            log(f"[ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
+        
+        try:
+            # Initialize CUDA driver by accessing device properties
+            torch.cuda.get_device_properties(self.device_id)
+            # Perform a simple CUDA operation to ensure driver is fully initialized
+            test_tensor = torch.zeros(1).cuda(self.device_id)
+            del test_tensor
+            torch.cuda.synchronize(self.device_id)
+            log(f"[INFO] CUDA device {self.device_id} is ready before AudioProcessor initialization")
+        except (RuntimeError, AssertionError) as e:
+            error_msg = (
+                f"CUDA device {self.device_id} initialization failed: {e}\n"
+                f"This is a production RunPod environment that requires GPU.\n"
+                f"CPU fallback would be 10-100x slower and is not acceptable.\n"
+                f"Please check RunPod worker configuration and GPU availability."
+            )
+            log(f"[ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
+        
+        # 1 load audio processor - CRITICAL: Pass device_id to ensure correct GPU usage
+        self.audio_processor: AudioProcessor = AudioProcessor(
+            cfg_path=cfg.audio_model_config, 
+            is_training=False,
+            device_id=self.device_id  # Pass device_id from pipeline config
+        )
         log(f"Load audio_processor done.")
 
         if cfg.motion_models_config is not None and load_motion_generator:

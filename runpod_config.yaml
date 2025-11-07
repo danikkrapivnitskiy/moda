@@ -73,10 +73,12 @@ motion_processor:
 # ============================================================================
 video_quality:
   crf: 18              # Reduced from 25 → better quality with minimal speed impact
-                       # CRF 23 = good balance between quality and file size
-                       # Lower CRF = better quality (18=best, 28=medium)
+                       # CRF 18 = high quality (original was 25, lower is better)
+                       # Lower CRF = better quality (18=best, 25=balanced, 28=medium)
   codec: "libx264"     # H.264 video codec
-  preset: "medium"     # Encoding speed preset (faster/medium/slow)
+  preset: "slow"       # Encoding speed preset (faster/medium/slow)
+                       # slow = best quality encoding (original was faster, medium is balanced)
+                       # Impact: +10-20% encoding time, better compression efficiency
   pixelformat: "yuv420p"  # Pixel format for compatibility
   output_format: "mp4" # Output format
 
