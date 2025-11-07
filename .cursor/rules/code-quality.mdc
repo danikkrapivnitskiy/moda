@@ -1,0 +1,66 @@
+---
+alwaysApply: true
+description: Code quality standards and tools
+---
+
+# Microsoft Enterprise Code Quality Standards
+
+## Enterprise-Grade Tools
+
+- **ESLint**: 142+ enterprise rules ([.eslintrc.json](mdc:.eslintrc.json))
+- **Prettier**: Enterprise formatting standards ([.prettierrc.json](mdc:.prettierrc.json))
+- **TypeScript**: Strict enterprise mode ([tsconfig.json](mdc:tsconfig.json))
+- **Husky**: Enterprise git hooks ([.husky/](mdc:.husky))
+- **SonarQube**: Enterprise code analysis and security scanning
+- **Microsoft Security Code Analysis**: Enterprise security standards
+
+## Scripts
+
+```bash
+npm run lint          # Check issues
+npm run lint:fix      # Auto-fix
+npm run format        # Format code
+npm run type-check    # TypeScript check
+npm run validate      # All checks
+```
+
+## Git Hooks
+
+- **Pre-commit**: lint:fix + format + type-check
+- **Pre-push**: lint + type-check + build
+- **Commit-msg**: Conventional commits
+
+## Conventions
+
+- **No `any` types** - Use proper TypeScript types
+- **Explicit return types** - On all functions
+- **Import ordering** - External, internal, utils
+- **120 char line width** - For readability
+- **Max complexity: 10** - Keep functions simple
+- **Max file size: 500 lines** - Split large files
+
+## Naming
+
+- Files: camelCase
+- Classes: PascalCase
+- Functions: camelCase
+- Constants: UPPER_SNAKE_CASE
+- Interfaces: IPascalCase (with I prefix)
+
+## Commit Format
+
+```
+type(scope): subject
+
+Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore
+```
+
+## Rules
+
+- ✅ Run `npm run validate` before committing
+- ✅ Fix all ESLint errors
+- ✅ Follow naming conventions
+- ✅ Keep functions under 100 lines
+- ✅ Keep files under 500 lines
+- ❌ Don't bypass git hooks
+- ❌ Don't commit with lint errors

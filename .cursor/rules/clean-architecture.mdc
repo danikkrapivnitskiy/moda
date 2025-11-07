@@ -1,0 +1,58 @@
+---
+alwaysApply: true
+description: Clean Architecture layer structure and dependencies
+---
+
+# Microsoft Enterprise Clean Architecture Structure
+
+## Enterprise Layer Organization
+
+```
+src/
+├── domain/           # Business logic (no dependencies) - Enterprise domain models
+├── application/      # Use cases & services - Enterprise application layer
+├── infrastructure/   # External services (API clients) - Enterprise infrastructure
+└── presentation/     # Controllers & middleware - Enterprise presentation layer
+```
+
+## Enterprise Dependency Rules
+
+- **Domain**: No dependencies on other layers - Pure enterprise business logic
+- **Application**: Depends on Domain only - Enterprise use cases
+- **Infrastructure**: Implements Domain interfaces - Enterprise external services
+- **Presentation**: Depends on Application - Enterprise API layer
+
+## File Naming
+
+- Services: `[name].service.ts`
+- Use Cases: `[action].use-case.ts`
+- Clients: `[name].client.ts`
+- Errors: `[type].errors.ts`
+
+## Key Patterns
+
+- **Strategy**: Video generation ([video-generation.strategy.ts](mdc:src/domain/video/strategies/video-generation.strategy.ts))
+- **Factory**: Service creation ([video-generator.factory.ts](mdc:src/domain/video/video-generator.factory.ts))
+- **Builder**: Complex objects ([video-options.builder.ts](mdc:src/domain/video/video-options.builder.ts))
+- **Use Case**: Business flows ([process-text-message.use-case.ts](mdc:src/application/use-cases/process-text-message.use-case.ts))
+- **DI**: TSyringe container ([container.ts](mdc:src/infrastructure/di/container.ts))
+
+## Import Order
+
+1. External dependencies (tsyringe, grammy, etc.)
+2. Config imports
+3. Domain imports
+4. Application imports
+5. Infrastructure imports
+6. Utilities
+
+Example:
+
+```typescript
+import { injectable, inject } from 'tsyringe';
+
+import { config } from '../../config/config';
+import { STTError } from '../../domain/errors';
+import { OpenAIClient } from '../../infrastructure/api/openai/openai.client';
+import { logger } from '../../utils/logger';
+```

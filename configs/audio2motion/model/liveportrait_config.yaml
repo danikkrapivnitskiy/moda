@@ -1,0 +1,79 @@
+# model config
+models_config: configs/audio2motion/model/models.yaml
+
+# 1. face appearance feature
+appearance_feature_extractor_path: pretrain_weights/decode/v1/first_stage/base_models/appearance_feature_extractor.pth
+
+# 2. motion feature
+motion_extractor_path: pretrain_weights/decode/v1/first_stage/base_models/motion_extractor.pth
+
+# 3. stitching retargeting module
+stitching_retargeting_module_path: pretrain_weights/decode/v1/first_stage/retargeting_models/stitching_retargeting_module.pth
+
+# 4. feature warper
+warping_module_path: pretrain_weights/decode/v1/first_stage/base_models/warping_module.pth
+
+# 5. SPADEGenerator
+spade_generator_path: pretrain_weights/decode/v1/first_stage/base_models/spade_generator.pth
+
+# 6. cropper
+crop_cfg: "configs/audio2motion/model/crop_config.yaml"
+
+# 7. face parser
+face_parser_weight_path: "pretrain_weights/face/face-parsing/79999_iter.pth"
+resnet_weight_path: "pretrain_weights/face/face-parsing/resnet18-5c106cde.pth"
+
+# motion template
+need_normalized: True
+
+# Motion Processor Configuration
+# NOTE: Parameters below serve as FALLBACK DEFAULTS.
+# If runpod_config.yaml is available, values from runpod_config.yaml will override these defaults.
+# This ensures backward compatibility and allows direct usage without runpod_server.py.
+# For production, use runpod_config.yaml as the single source of truth.
+
+# Default values (overridden by runpod_config.yaml if available)
+batch_size: 10
+warp_decode_batch_size: 20
+source_max_dim: 512
+source_division: 2
+input_height: 256
+input_width: 256
+output_height: 512
+output_width: 512
+output_fps: 25
+
+# Video encoding quality defaults (overridden by runpod_config.yaml video_quality section if available)
+# These values are automatically replaced by runpod_config.yaml video_quality.crf and video_quality.preset
+crf: 25  # Default fallback (will be overridden by runpod_config.yaml video_quality.crf)
+preset: "faster"  # Default fallback (will be overridden by runpod_config.yaml video_quality.preset)
+
+# driving params
+# NOTE: These are FALLBACK DEFAULTS only. For production, configure in runpod_config.yaml (motion_processor section)
+# ConfigManager automatically merges runpod_config.yaml → liveportrait_config.yaml at runtime
+flag_do_torch_compile: False
+flag_use_half_precision: True
+flag_relative_motion: True  # Required for expression-friendly mode to work properly
+flag_normalize_lip: False
+flag_source_video_eye_retargeting: False
+flag_eye_retargeting: False
+flag_lip_retargeting: False
+flag_stitching: True
+
+lip_normalize_threshold: 0.03 # threshold for flag_normalize_lip
+source_video_eye_retargeting_threshold: 0.18 # threshold for eyes retargeting if the input is a source video
+anchor_frame: 0 # TO IMPLEMENT
+
+driving_option: "expression-friendly" # "expression-friendly" or "pose-friendly"
+driving_multiplier: 1.5  # Increased from 1.0 to 1.5 for more expressive facial movements (eyes, eyebrows, lips)
+lib_multiplier: 1.0
+driving_smooth_observation_variance: 3e-7 # the larger the number, the smoother the animated video; too much smoothness would result in loss of motion accuracy
+animation_region: "all" #["exp", "pose", "lip", "eyes", "all"], the region where the animation was performed, "exp" means the expression, "pose" means the head pose
+
+# Emotion configuration
+# NOTE: Override in runpod_config.yaml (motion_processor.default_emotion)
+default_emotion: 8  # Fallback default: 8 (None) - no emotion applied, uses audio-driven expressions only
+                    # Emotion codes: 0=Anger, 1=Contempt, 2=Disgust, 3=Fear, 4=Happiness,
+                    #                5=Neutral, 6=Sadness, 7=Surprise, 8=None
+mask_crop: src/utils/resources/mask_template.png
+lip_array: src/utils/resources/lip_array.pkl

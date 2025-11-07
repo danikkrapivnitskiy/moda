@@ -1,0 +1,65 @@
+---
+globs: *.ts,*.tsx
+description: Error handling with typed error hierarchy
+---
+
+# Microsoft Enterprise Error Handling Standards
+
+## Enterprise Error Hierarchy
+
+All errors extend [BaseError](mdc:src/domain/errors/base.error.ts) following **Microsoft enterprise patterns**:
+
+```
+BaseError (abstract) - Microsoft enterprise base
+├── Service Errors (STTError, LLMError, TTSError, etc.) - Enterprise service layer
+├── Validation Errors (ValidationError, FileValidationError) - Enterprise validation
+├── External API Errors (OpenAIAPIError, TelegramAPIError) - Enterprise API integration
+└── Resource Errors (NotFoundError, AlreadyExistsError) - Enterprise resource management
+```
+
+## Usage Pattern
+
+```typescript
+try {
+  const result = await operation();
+  return result;
+} catch (error) {
+  logger.error('Operation failed', {
+    error: error instanceof Error ? error.message : String(error),
+    context: {
+      /* relevant data */
+    },
+  });
+  throw new ServiceError('User-friendly message', {
+    /* context */
+  });
+}
+```
+
+## Error Handler
+
+Use [ErrorHandler](mdc:src/domain/errors/index.ts) in middleware:
+
+```typescript
+const message = ErrorHandler.handle(error); // User-friendly message
+const isRecoverable = ErrorHandler.isRecoverable(error);
+const retryDelay = ErrorHandler.getRetryDelay(error);
+```
+
+## Creating Errors
+
+```typescript
+throw new STTError('Transcription failed', {
+  audioPath,
+  fileSize,
+  originalError: error.message,
+});
+```
+
+## Rules
+
+- ✅ Always use typed errors (not generic Error)
+- ✅ Include context in error objects
+- ✅ Log errors with full context before throwing
+- ✅ Return user-friendly messages via getUserMessage()
+- ❌ Never expose sensitive data in error messages

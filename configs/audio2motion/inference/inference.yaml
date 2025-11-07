@@ -1,0 +1,45 @@
+# Inference Configuration
+# NOTE: Parameters below serve as FALLBACK DEFAULTS.
+# If runpod_config.yaml is available, values from runpod_config.yaml will override these defaults.
+# This ensures backward compatibility and allows direct usage without runpod_server.py.
+# For production, use runpod_config.yaml as the single source of truth.
+
+# Default values (overridden by runpod_config.yaml if available)
+output_fps: 25
+device_id: 0
+batch_size: 10
+source_max_dim: 512
+source_division: 2
+input_height: 256
+input_width: 256
+source_fps: 25
+min_video_length: 50
+max_video_length: 500
+
+# Video encoding quality defaults (overridden by runpod_config.yaml video_quality section if available)
+# These values are automatically replaced by runpod_config.yaml video_quality section
+crf: 25  # Default fallback (will be overridden by runpod_config.yaml video_quality.crf)
+codec: "libx264"  # Default fallback (will be overridden by runpod_config.yaml video_quality.codec)
+preset: "faster"  # Default fallback (will be overridden by runpod_config.yaml video_quality.preset)
+output_format: "mp4"  # Default fallback (will be overridden by runpod_config.yaml video_quality.output_format)
+
+## appearance and motion feature extractor
+appearance_feature_extractor_path:  pretrain_weights/decode/v1/first_stage/base_models/appearance_feature_extractor.pth
+motion_extractor_path: pretrain_weights/decode/v1/first_stage/base_models/motion_extractor.pth
+## SPADEGenerator
+spade_generator_path: pretrain_weights/decode/v1/first_stage/base_models/spade_generator.pth
+warping_module_path:  pretrain_weights/decode/v1/first_stage/base_models/warping_module.pth
+## stitching retargeting module
+stitching_retargeting_module_path:  pretrain_weights/decode/v1/first_stage/retargeting_models/stitching_retargeting_module.pth
+
+# audio processer config
+audio_model_config: configs/audio2motion/model/audio_processer_config.yaml
+
+# motion processer config
+motion_processer_config: configs/audio2motion/model/liveportrait_config.yaml
+
+# motion generator model
+motion_models_config: configs/audio2motion/model/config.yaml
+use_ref_kp: False
+motion_generator_path: pretrain_weights/moda/net-200.pth
+need_normalized: True

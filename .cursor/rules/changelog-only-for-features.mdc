@@ -1,0 +1,121 @@
+---
+alwaysApply: true
+---
+
+# Microsoft Enterprise Features Documentation Policy
+
+## Enterprise Documentation Location for New Features
+
+When implementing new features in this **Microsoft enterprise project**, **DO NOT** create separate documentation files. All feature documentation must be added to [CHANGELOG.md](mdc:CHANGELOG.md) only.
+
+## Enterprise Standards
+
+This is a **multi-million dollar Microsoft enterprise project** requiring:
+
+- **Enterprise-grade documentation standards**
+- **Microsoft compliance requirements**
+- **Enterprise change management**
+- **High-scale production deployment standards**
+
+## What Goes in CHANGELOG.md
+
+When adding a new feature, update the `[Unreleased]` section with:
+
+### Required Sections
+
+1. **Added** - New features and capabilities
+2. **Changed** - Changes to existing functionality
+3. **Technical Details** - Implementation specifics (timing, dependencies, etc.)
+
+### Example Format
+
+```markdown
+## [Unreleased]
+
+### Added
+
+- Feature name and brief description
+- New service/component added
+- New environment variables or configuration options
+- New error types if applicable
+
+### Changed
+
+- How existing components were modified
+- Updated behavior or interfaces
+- Configuration changes
+
+### Technical Details
+
+- Performance metrics (timing, memory, etc.)
+- Processing details
+- Cleanup behavior
+- Fallback mechanisms
+```
+
+## Reference Example
+
+See the image generation feature documentation in [CHANGELOG.md](mdc:CHANGELOG.md) lines 12-30:
+
+```markdown
+### Added
+
+- Image generation service using OpenAI DALL-E 3 for talking cat videos
+- `ImageGenerationService` for AI-generated character images
+- `USE_IMAGE_GENERATION` environment variable to enable/disable AI image generation
+- `ImageGenerationError` error type for image generation failures
+- Image-based video generation with subtle zoom animation effect
+- Male voice support (TTS_VOICE=onyx) for better talking cat experience
+
+### Changed
+
+- Video service now accepts optional `imagePath` parameter for custom video visuals
+- Video generation supports both traditional styles (waveform/simple/branded) and image-based
+- OpenAI config extended with image generation settings (DALL-E 3, 1024x1024, standard quality)
+
+### Technical Details
+
+- Image generation: ~5-10 seconds per DALL-E API call
+- Video with image: ~3-5 seconds FFmpeg processing with zoompan animation
+- Images automatically cleaned up after video generation
+- Fallback to standard video styles when image generation disabled
+```
+
+## What NOT to Do
+
+❌ **Don't** create separate feature documentation files like:
+
+- `docs/features/new-feature.md`
+- `docs/guides/new-feature-guide.md`
+- `NEW_FEATURE.md` in the root
+
+❌ **Don't** document features in:
+
+- README.md (keep it high-level)
+- Separate guide files
+- New documentation files
+
+## What to Update Instead
+
+✅ **Do** update these existing files if needed:
+
+- [CHANGELOG.md](mdc:CHANGELOG.md) - Always update for new features
+- Existing guide files in `docs/guides/` - Only if the feature extends an existing guide
+- [README.md](mdc:README.md) - Only for major architectural changes
+
+## Rationale
+
+- **Single source of truth** - All changes tracked in one place
+- **Version control** - CHANGELOG follows semantic versioning
+- **Historical record** - Easy to see what was added when
+- **Less maintenance** - No separate docs to keep in sync
+- **Standard practice** - Follows Keep a Changelog format
+
+## Process
+
+1. Implement the feature
+2. Update [CHANGELOG.md](mdc:CHANGELOG.md) `[Unreleased]` section
+3. Include technical details, timings, and behavior
+4. Commit with feature code
+
+**Remember**: If you're adding a feature, update CHANGELOG.md. Don't create new documentation files.

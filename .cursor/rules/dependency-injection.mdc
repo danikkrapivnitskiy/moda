@@ -1,0 +1,45 @@
+---
+globs: *.ts,*.tsx
+description: Dependency injection with TSyringe
+---
+
+# Microsoft Enterprise Dependency Injection
+
+## Enterprise Container Setup
+
+All services registered in [container.ts](mdc:src/infrastructure/di/container.ts) following **Microsoft enterprise DI patterns**.
+
+## Enterprise Service Registration
+
+```typescript
+// In container.ts - Microsoft enterprise DI
+container.registerSingleton('ServiceName', ServiceClass);
+```
+
+## Service Definition
+
+```typescript
+import { injectable, inject } from 'tsyringe';
+
+@injectable()
+export class MyService {
+  constructor(@inject('DependencyName') private readonly dependency: DependencyType) {}
+}
+```
+
+## Resolution
+
+```typescript
+// In non-injectable code
+import { DIContainer } from './infrastructure/di/container';
+
+const service = DIContainer.resolve<ServiceType>('ServiceName');
+```
+
+## Rules
+
+- ✅ Use `@injectable()` decorator on all services
+- ✅ Use `@inject('TokenName')` for dependencies
+- ✅ Register all services as singletons
+- ✅ Import `reflect-metadata` at app entry point
+- ❌ Don't use `new ServiceClass()` directly in business logic

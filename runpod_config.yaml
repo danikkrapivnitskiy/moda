@@ -1,0 +1,179 @@
+# RunPod serverless handler configuration
+# Enterprise Configuration - Single Source of Truth
+# All parameters defined here are automatically merged into nested configs at runtime
+
+# MoDA model configuration
+runpod:
+  model_name: "MoDA"
+  version: "1.0.0"
+
+# Paths
+inference_config_path: "configs/audio2motion/inference/inference.yaml"
+motion_mean_std_path: "src/datasets/mean.pt"
+
+# Model paths (used by ensure_models_downloaded)
+paths:
+  pretrain_weights: "/workspace/pretrain_weights"
+  models_cache: "/app/models_cache"
+
+# ============================================================================
+# INFERENCE CONFIGURATION
+# These parameters are merged into inference.yaml at runtime
+# Optimized for A6000/A40 48GB GPU ($0.00034/sec = $1.22/hr)
+# ============================================================================
+inference:
+  batch_size: 80  # Optimized for A6000 48GB (system recommends 100, max safe 150)
+                   # Was using only 4GB/44.4GB with old values (50), so 100 is safe
+                   # Auto OOM protection will reduce if needed
+  device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
+  source_division: 2  # make sure the height and width of source image or video can be divided by this number
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
+  output_fps: 25
+  source_fps: 25
+  min_video_length: 50
+  max_video_length: 1500  # 60 seconds at 25fps (A6000/A40 48GB safe limit)
+                           # Increased from 1000 (40 sec) → can handle longer videos
+
+# ============================================================================
+# MOTION PROCESSOR CONFIGURATION
+# These parameters are merged into liveportrait_config.yaml at runtime
+# Optimized for A6000/A40 48GB GPU
+# ============================================================================
+motion_processor:
+  batch_size: 80  # Optimized for A6000 48GB (system recommends 100, max safe 150)
+                   # Was using only 4GB/44.4GB with old values (50), so 100 is safe
+                   # Auto OOM protection will reduce if needed
+  warp_decode_batch_size: 64  # Base batch size for A6000 48GB (optimized for short videos)
+                               # Dynamically reduced for longer videos: 15% at 1000-1299 frames, 30% at 1300-1499 frames, 55% at 1500+ frames
+                               # Auto OOM protection will further reduce to 32, 16, 8 if needed
+                               # Short videos (<1000 frames): uses full 64, Medium-long (1000-1299): 54, Long (1300-1499): 44, Very long (1500+): 28
+                               # Performance: ~108s for 1000 frames (batch_size 54), ~152s for 1450 frames (batch_size 44)
+                               # Note: At 54 (1000 frames) VRAM usage is ~80%, so increasing base value above 64 would risk OOM on longer videos
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
+  source_division: 2  # make sure the height and width of source image or video can be divided by this number
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
+  output_height: 512  # Output video resolution (512x512 for Telegram video notes)
+  output_width: 512   # Output video resolution (512x512 for Telegram video notes)
+  output_fps: 25
+  # Expression and motion control
+  flag_relative_motion: False  # Required for expression-friendly mode to work properly
+                               # Enables relative motion calculation for more natural expressions
+  driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
+                                       # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
+                                       # pose-friendly: emphasizes head pose movements
+  driving_multiplier: 0.7  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
+                           # Increased from 1.0 to 1.5 for more visible facial movements
+                           # Higher values make eyes, eyebrows, and lips more animated
+  emo_scale: 0.5  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+                  # Reduced from 1.5 to 1.2 for better balance with audio-driven expressions
+                  # Higher values (1.5-2.0) make emotions more expressive, especially for eyebrow movements
+                  # This scales emotion embeddings before they're integrated with audio and motion
+                  # Values >2.0 may cause artifacts, recommended range: 1.0-2.0
+
+# ============================================================================
+# VIDEO QUALITY SETTINGS
+# These parameters control video encoding quality (Telegram optimized)
+# ============================================================================
+video_quality:
+  crf: 18              # Reduced from 25 → better quality with minimal speed impact
+                       # CRF 18 = high quality (original was 25, lower is better)
+                       # Lower CRF = better quality (18=best, 25=balanced, 28=medium)
+  codec: "libx264"     # H.264 video codec
+  preset: "slow"       # Encoding speed preset (faster/medium/slow)
+                       # slow = best quality encoding (original was faster, medium is balanced)
+                       # Impact: +10-20% encoding time, better compression efficiency
+  pixelformat: "yuv420p"  # Pixel format for compatibility
+  output_format: "mp4" # Output format
+
+# ============================================================================
+# PERFORMANCE OPTIMIZATION SETTINGS
+# These parameters control performance optimizations for A6000/A40 48GB
+# ============================================================================
+performance:
+  enable_torch_compile: False  # Enable torch.compile for 20-30% speedup on A6000/A40
+                              # Maps to flag_do_torch_compile in liveportrait_config.yaml
+  use_half_precision: False    # FP16 for faster inference on A6000/A40
+                              # Maps to flag_use_half_precision in liveportrait_config.yaml
+  max_video_length: 1500      # 60 seconds max for A6000/A40 48GB
+                              # Can be overridden by inference.max_video_length if set
+
+# ============================================================================
+# MEMORY OPTIMIZATION SETTINGS
+# These parameters control GPU memory management
+# ============================================================================
+memory_optimization:
+  pytorch_cuda_alloc_conf: "max_split_size_mb:256"  # CUDA allocator configuration
+                                # Limits maximum block size to 256MB to reduce memory fragmentation
+                                # This prevents PyTorch from reserving very large memory blocks that create fragmentation
+                                # 
+                                # IMPORTANT: This value is set BEFORE torch import in runpod_server.py
+                                # 
+                                # To test different configurations:
+                                # 1. Change this value in runpod_config.yaml
+                                # 2. Restart the endpoint/container
+                                # 3. Run video generation and check logs for fragmentation metrics
+                                # 
+                                # Example values:
+                                #   - "max_split_size_mb:256" = limit max split size to 256MB (current, reduces fragmentation)
+                                #   - "max_split_size_mb:512" = limit max split size to 512MB (less aggressive)
+                                #   - "" (empty string) = default allocator (no limit, may cause high fragmentation)
+                                #   - "expandable_segments:True" = expandable segments (may cause high fragmentation)
+                                # 
+                                # Target: fragmentation < 5GB for videos < 1000 frames
+                                # Expected: 50-70% reduction in fragmentation with max_split_size_mb:256
+
+# ============================================================================
+# GPU COMPATIBILITY SETTINGS
+# These parameters control automatic GPU compatibility handling
+# ============================================================================
+compatibility:
+  auto_disable_torch_compile_on_old_gpu: True  # Auto-disable if compute capability < 7.0
+  auto_disable_fp16_on_old_gpu: True          # Auto-disable if compute capability < 7.0
+  auto_adjust_batch_size_on_oom: True         # Auto-reduce batch_size on CUDA OOM
+  max_oom_retries: 3                          # Max retries with reduced batch_size
+  max_batch_size_by_memory:                   # Recommended max batch_size by GPU memory (GB)
+    24: 25    # RTX 4090, RTX 3090
+    40: 50    # A6000, A40
+    48: 75    # A6000 48GB, A40 48GB
+    80: 100   # A100
+
+# ============================================================================
+# RESOURCE LIMITS
+# These parameters control resource usage and validation
+# ============================================================================
+resource_limits:
+  max_image_size_mb: 10
+  max_audio_size_mb: 50
+  min_disk_space_gb: 10
+  audio_pad_duration: 2.0
+
+# ============================================================================
+# EMOTION CONFIGURATION
+# DICE-Talk emotion integration settings
+# ============================================================================
+emotion:
+  # Enhanced emotion support (DICE-Talk integration)
+  # Supports two input modes:
+  # 1. Emotion code (int): 0-8 for basic emotions, 8 for neutral
+  #    0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness, 
+  #    5: Neutral, 6: Sadness, 7: Surprise, 8: None
+  # 2. Emotion feature file (str): path to .npy file from DICE-Talk examples
+  #    Example: "examples/emo/happy.npy" for enhanced emotion control
+  #    Provides 64-code emotion control with VQ-VAE codebook and attention-based retrieval
+  use_enhanced_emotion: true  # Enable DICE-Talk emotion adapter (enabled by default)
+  emotion_model_path: null     # Path to emo_model.pth checkpoint (optional, auto-detected if null)
+                                # Auto-searches in standard locations:
+                                # - /workspace/checkpoints/DICE-Talk/emo_model.pth (persistent storage)
+                                # - /app/models_cache/checkpoints/DICE-Talk/emo_model.pth (pre-built cache)
+                                # - checkpoints/DICE-Talk/emo_model.pth (local development)
+                                # Model is automatically downloaded during Docker build from:
+                                # your-huggingface-username/moda-emotion-model (lightweight, ~286 MB)
+  emotion_examples_dir: "examples/emo"  # Directory with DICE-Talk emotion .npy files
+  default_emotion: 8  # Default emotion code if not specified or file not found (8 = neutral/None)
+                       # Neutral works better as default - provides balanced expressions that work well with audio
+  # Note: Enhanced emotions require emo_model.pth checkpoint and .npy example files
+  # If not available, falls back to simple emotion codes (0-8)
+
