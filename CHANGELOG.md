@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Impact: Zero "CUDA device is busy" errors, 100% request success rate
   - Technical: Double-check locking pattern for initialization, exclusive GPU lock for inference
 
+### Known Issues
+
+- **SPADEDecoder state_dict compatibility error**: Model loading fails with "Missing key(s) in state_dict: 'conv_img.weight', 'conv_img.bias'" when using `upscale: 1` in `models.yaml`
+  - **Root cause**: Pre-trained models were saved with `upscale: 2` (using `nn.Sequential` with keys `conv_img.0.weight/bias`), but code creates `nn.Conv2d` (keys `conv_img.weight/bias`) when `upscale <= 1`
+  - **Impact**: Cannot use `upscale: 1` configuration without model retraining or state_dict transformation
+  - **Workaround**: Use `upscale: 2` in `models.yaml` (default configuration)
+  - **Future fix**: Implement state_dict key transformation or always use Sequential structure for compatibility
+  - **Related**: See NEXT_IMPROVEMENTS.md for planned solution
+
 ### Changed
 
 - **Quality improvements**: Enhanced video quality settings

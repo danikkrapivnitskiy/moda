@@ -59,7 +59,6 @@ def graceful_shutdown(signum, frame):
     
     # Clear GPU memory
     try:
-        import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print("[INFO] GPU memory cleared on shutdown")
@@ -82,6 +81,15 @@ import time
 import fcntl
 import shutil
 import threading
+# Import torch globally since it's used in multiple places
+# This is required for MoDA - if torch is not available, the module cannot function
+try:
+    import torch  # pyright: ignore[reportMissingImports]  # PyTorch is installed in Docker container
+except ImportError as e:
+    print(f"[ERROR] Failed to import PyTorch: {e}")
+    print("       PyTorch is required for MoDA video generation")
+    print("       Please ensure PyTorch is installed in the environment")
+    raise
 from omegaconf import OmegaConf
 
 # Lazy initialization to avoid import conflicts
@@ -650,7 +658,7 @@ def ensure_models_downloaded():
                 print(f"[WARN] Failed to download emotion model: {e}")
                 print("       Enhanced emotions will be disabled, using simple emotion codes")
                 if emotion_repo:
-                print(f"       You can manually download from: {emotion_repo}/emo_model.pth")
+                    print(f"       You can manually download from: {emotion_repo}/emo_model.pth")
                 else:
                     print("       Set HUGGINGFACE_USERNAME to enable automatic download")
         else:
@@ -675,7 +683,6 @@ def ensure_cuda_ready(max_retries=5, retry_delay=1.0):
         bool: True if CUDA is ready, False otherwise
     """
     import time
-    import torch
     
     for attempt in range(max_retries):
         try:
@@ -733,71 +740,71 @@ def get_pipe():
         # Acquire lock to prevent parallel initialization
         with pipe_init_lock:
             # Double-check pattern: another thread might have initialized while we waited
-    if pipe is None:
-        # Ensure models are downloaded first
-        try:
-            ensure_models_downloaded()
-        except Exception as e:
-            print(f"[ERROR] Model download failed: {e}")
-            raise
-        
-        # Load primary configuration using ConfigManager
-        import sys
-        # Add src to path for imports (both /app/src for Docker and relative for local)
-        src_paths = ['/app/src', str(Path(__file__).parent / 'src')]
-        for src_path in src_paths:
-            if src_path not in sys.path:
-                sys.path.insert(0, src_path)
-        from utils.config_manager import get_config_manager
-        
-        config_manager = get_config_manager()
-        primary_config = config_manager.load_primary_config()
-        
-        # Apply memory optimization environment variables
-        memory_env = config_manager.get_memory_optimization_env(primary_config)
-        for env_key, env_value in memory_env.items():
-            os.environ[env_key] = env_value
-            print(f"[INFO] Set {env_key}={env_value} from primary config")
-        
-        # Get inference config path from primary config
-        config = load_runpod_config()  # Keep for backward compatibility
-        cfg_path = primary_config.get('inference_config_path', config.inference_config_path)
-        
-        print(f"[INFO] Initializing MoDA pipeline with config: {cfg_path}")
-        print(f"[INFO] Using enterprise configuration manager for automatic config merging")
-        
-        # Merge primary config into inference config
-        inference_cfg = config_manager.merge_configs(
-            primary_config=primary_config,
-            nested_config_path=cfg_path,
-            section='inference'
-        )
-        
-        # Allow device_id override from environment (backward compatibility)
-        if os.getenv('CUDA_DEVICE_ID'):
-            device_id_override = int(os.getenv('CUDA_DEVICE_ID'))
-            inference_cfg.device_id = device_id_override
-            print(f"[INFO] Device ID overridden from CUDA_DEVICE_ID env var: {device_id_override}")
-        
-        # Save merged config to temp file
-        import tempfile
-        from omegaconf import OmegaConf
-        temp_cfg_path = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
-        OmegaConf.save(inference_cfg, temp_cfg_path.name)
-        temp_cfg_path.close()
-        merged_cfg_path = temp_cfg_path.name
-        
-        # Import MoDA pipeline
-        from models.inference.moda_test import LiveVASAPipeline
-        
-        # Initialize pipeline with merged config and primary config for further merging
-        pipe = LiveVASAPipeline(
-            cfg_path=merged_cfg_path,
-            load_motion_generator=True,
-            motion_mean_std_path=primary_config.get('motion_mean_std_path', config.get('motion_mean_std_path', None)),
-            primary_config=primary_config  # Pass primary config for motion processor merging
-        )
-        print("[OK] MoDA pipeline initialized with enterprise configuration system")
+            if pipe is None:
+                # Ensure models are downloaded first
+                try:
+                    ensure_models_downloaded()
+                except Exception as e:
+                    print(f"[ERROR] Model download failed: {e}")
+                    raise
+                
+                # Load primary configuration using ConfigManager
+                import sys
+                # Add src to path for imports (both /app/src for Docker and relative for local)
+                src_paths = ['/app/src', str(Path(__file__).parent / 'src')]
+                for src_path in src_paths:
+                    if src_path not in sys.path:
+                        sys.path.insert(0, src_path)
+                from utils.config_manager import get_config_manager
+                
+                config_manager = get_config_manager()
+                primary_config = config_manager.load_primary_config()
+                
+                # Apply memory optimization environment variables
+                memory_env = config_manager.get_memory_optimization_env(primary_config)
+                for env_key, env_value in memory_env.items():
+                    os.environ[env_key] = env_value
+                    print(f"[INFO] Set {env_key}={env_value} from primary config")
+                
+                # Get inference config path from primary config
+                config = load_runpod_config()  # Keep for backward compatibility
+                cfg_path = primary_config.get('inference_config_path', config.inference_config_path)
+                
+                print(f"[INFO] Initializing MoDA pipeline with config: {cfg_path}")
+                print(f"[INFO] Using enterprise configuration manager for automatic config merging")
+                
+                # Merge primary config into inference config
+                inference_cfg = config_manager.merge_configs(
+                    primary_config=primary_config,
+                    nested_config_path=cfg_path,
+                    section='inference'
+                )
+                
+                # Allow device_id override from environment (backward compatibility)
+                if os.getenv('CUDA_DEVICE_ID'):
+                    device_id_override = int(os.getenv('CUDA_DEVICE_ID'))
+                    inference_cfg.device_id = device_id_override
+                    print(f"[INFO] Device ID overridden from CUDA_DEVICE_ID env var: {device_id_override}")
+                
+                # Save merged config to temp file
+                import tempfile
+                from omegaconf import OmegaConf
+                temp_cfg_path = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+                OmegaConf.save(inference_cfg, temp_cfg_path.name)
+                temp_cfg_path.close()
+                merged_cfg_path = temp_cfg_path.name
+                
+                # Import MoDA pipeline
+                from models.inference.moda_test import LiveVASAPipeline
+                
+                # Initialize pipeline with merged config and primary config for further merging
+                pipe = LiveVASAPipeline(
+                    cfg_path=merged_cfg_path,
+                    load_motion_generator=True,
+                    motion_mean_std_path=primary_config.get('motion_mean_std_path', config.get('motion_mean_std_path', None)),
+                    primary_config=primary_config  # Pass primary config for motion processor merging
+                )
+                print("[OK] MoDA pipeline initialized with enterprise configuration system")
     return pipe
 
 def check_cuda_info():
@@ -816,7 +823,6 @@ def check_cuda_info():
     
     # PyTorch CUDA info
     try:
-        import torch
         info["pytorch_version"] = torch.__version__
         info["cuda_available"] = torch.cuda.is_available()
         
@@ -877,9 +883,7 @@ def check_cuda_info():
         info["warnings"].append(f"nvidia-smi check failed: {e}")
     
     # Check torchvision::nms operator
-    # Import torch first to avoid circular import issues
     try:
-        import torch
         # Wait a bit to ensure torchvision is fully initialized
         import sys
         if 'torchvision' in sys.modules:
@@ -1106,78 +1110,76 @@ def handler(event):
             print("[INFO] Acquiring GPU lock for exclusive access...")
             gpu_lock.acquire()
             try:
-            # Get pipe (lazy init on first request)
-            pipe = get_pipe()
-            
-            # Clear GPU cache before inference to maximize available memory
+                # Get pipe (lazy init on first request)
+                pipe = get_pipe()
+                
+                # Clear GPU cache before inference to maximize available memory
                 # Synchronize CUDA operations to ensure GPU is ready
-            try:
-                import torch
-                if torch.cuda.is_available():
+                try:
+                    if torch.cuda.is_available():
                         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
-                    torch.cuda.empty_cache()
-                    mem_allocated = torch.cuda.memory_allocated() / 1024**3
-                    mem_reserved = torch.cuda.memory_reserved() / 1024**3
-                    print(f"[INFO] GPU memory before inference: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved")
-            except Exception as e:
-                print(f"[WARN] Failed to clear GPU cache: {e}")
-            
-            # Process video using driven_sample
-            start = time.time()
-            
-            # Create temporary directory for processing (needed for emotion .npy files)
-            temp_dir = tempfile.mkdtemp()
-            
-            # driven_sample parameters (method signature from moda_test.py line 213):
-            # - image_path, audio_path, cfg_scale=1., emo=8, save_dir=None, 
-            #   smooth=False, silent_audio_path=None, silent_mode="post"
-            # Get optional parameters from input
-            cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
-            
-            # Get default_emotion from config (emotion.default_emotion)
-            config = load_runpod_config()
-            default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
-            
-            # Support both "emo" and "emotion" keys (emotion takes priority if both present)
-            emo_input = input_data.get("emotion") or input_data.get("emo")
-            if emo_input is None:
-                emo_input = default_emotion
-                print(f"[INFO] No emotion specified in request, using default_emotion from config: {default_emotion}")
-            else:
-                print(f"[INFO] Emotion input from request: {emo_input} (type: {type(emo_input).__name__})")
-            
-            emo = process_emotion_input(emo_input, temp_dir)  # Process emotion (int code or .npy file)
-            print(f"[INFO] Processed emotion result: {emo} (type: {type(emo).__name__})")
-            smooth = input_data.get("smooth", False)  # Smooth motion transitions
-            
-            # Create temporary directory for output (driven_sample needs save_dir, not file path)
-            save_dir = tempfile.mkdtemp()
-            
-            print(f"   Save dir: {save_dir}")
-            print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo}, smooth={smooth}")
-            
-            # Call driven_sample (returns path to generated video)
-            output_path = pipe.driven_sample(
-                image_path=img_path,
-                audio_path=aud_path,
-                cfg_scale=cfg_scale,
-                emo=emo,
-                save_dir=save_dir,
-                smooth=smooth
-            )
-            timing['inference'] = time.time() - start
-            
-            print(f"   Generated video: {output_path}")
-            
+                        torch.cuda.empty_cache()
+                        mem_allocated = torch.cuda.memory_allocated() / 1024**3
+                        mem_reserved = torch.cuda.memory_reserved() / 1024**3
+                        print(f"[INFO] GPU memory before inference: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved")
+                except Exception as e:
+                    print(f"[WARN] Failed to clear GPU cache: {e}")
+                
+                # Process video using driven_sample
+                start = time.time()
+                
+                # Create temporary directory for processing (needed for emotion .npy files)
+                temp_dir = tempfile.mkdtemp()
+                
+                # driven_sample parameters (method signature from moda_test.py line 213):
+                # - image_path, audio_path, cfg_scale=1., emo=8, save_dir=None, 
+                #   smooth=False, silent_audio_path=None, silent_mode="post"
+                # Get optional parameters from input
+                cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
+                
+                # Get default_emotion from config (emotion.default_emotion)
+                config = load_runpod_config()
+                default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
+                
+                # Support both "emo" and "emotion" keys (emotion takes priority if both present)
+                emo_input = input_data.get("emotion") or input_data.get("emo")
+                if emo_input is None:
+                    emo_input = default_emotion
+                    print(f"[INFO] No emotion specified in request, using default_emotion from config: {default_emotion}")
+                else:
+                    print(f"[INFO] Emotion input from request: {emo_input} (type: {type(emo_input).__name__})")
+                
+                emo = process_emotion_input(emo_input, temp_dir)  # Process emotion (int code or .npy file)
+                print(f"[INFO] Processed emotion result: {emo} (type: {type(emo).__name__})")
+                smooth = input_data.get("smooth", False)  # Smooth motion transitions
+                
+                # Create temporary directory for output (driven_sample needs save_dir, not file path)
+                save_dir = tempfile.mkdtemp()
+                
+                print(f"   Save dir: {save_dir}")
+                print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo}, smooth={smooth}")
+                
+                # Call driven_sample (returns path to generated video)
+                output_path = pipe.driven_sample(
+                    image_path=img_path,
+                    audio_path=aud_path,
+                    cfg_scale=cfg_scale,
+                    emo=emo,
+                    save_dir=save_dir,
+                    smooth=smooth
+                )
+                timing['inference'] = time.time() - start
+                
+                print(f"   Generated video: {output_path}")
+                
                 # Clear GPU memory after inference with synchronization
-            try:
-                import torch
-                if torch.cuda.is_available():
+                try:
+                    if torch.cuda.is_available():
                         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
-                    torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
                         print("[INFO] GPU memory cleared and synchronized")
-            except Exception as e:
-                print(f"[WARN] Failed to clear GPU memory: {e}")
+                except Exception as e:
+                    print(f"[WARN] Failed to clear GPU memory: {e}")
             finally:
                 # Always release GPU lock, even if an error occurs
                 gpu_lock.release()
@@ -1298,7 +1300,6 @@ if USE_EAGER_INIT:
         
         # Additional optimizations for A6000/A40 48GB
         try:
-            import torch
             if torch.cuda.is_available():
                 # Set optimal memory allocator for A6000/A40
                 os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
