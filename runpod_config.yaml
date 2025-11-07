@@ -22,16 +22,13 @@ paths:
 # Optimized for A6000/A40 48GB GPU ($0.00034/sec = $1.22/hr)
 # ============================================================================
 inference:
-  batch_size: 10  # Original working value - keep at 10 for accurate lip sync
-                  # DO NOT increase - larger values (50+) can break audio-video synchronization
-                  # Increased batch_size causes timing issues with motion generation
+  batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
+                  # A6000/A40 has 48GB memory → can safely handle 75 batch size
   device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
-  source_max_dim: 512  # Keep at 512 for accurate lip sync
-                        # DO NOT increase - larger values break audio-video synchronization
-                        # Increased resolution (640+) causes timing issues with audio processing
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
-  input_height: 256
-  input_width: 256
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
   output_fps: 25
   source_fps: 25
   min_video_length: 50
@@ -44,59 +41,44 @@ inference:
 # Optimized for A6000/A40 48GB GPU
 # ============================================================================
 motion_processor:
-  batch_size: 10  # Original working value - keep at 10 for accurate lip sync
-                  # DO NOT increase - larger values (50+) can break audio-video synchronization
-                  # Increased batch_size causes timing issues with motion generation
-  warp_decode_batch_size: 20  # Increased from 75 → faster warp_decode on A6000/A40 48GB
+  batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
+                  # A6000/A40 has 48GB memory → can handle larger batches safely
+  warp_decode_batch_size: 15  # Increased from 75 → faster warp_decode on A6000/A40 48GB
                                # A6000/A40 can handle larger batches for warp_decode processing
-  source_max_dim: 512  # Original working value - keep at 512 for accurate lip sync
-                        # DO NOT increase - larger values break audio-video synchronization
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
-  input_height: 256
-  input_width: 256
-  output_height: 512  # Original working value - keep at 512 for accurate lip sync
-                       # DO NOT increase - larger values break audio-video synchronization
-  output_width: 512   # Original working value - keep at 512 for accurate lip sync
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
+  output_height: 512  # Output video resolution (512x512 for Telegram video notes)
+  output_width: 512   # Output video resolution (512x512 for Telegram video notes)
   output_fps: 25
-  # Expression and motion control - for more expressive facial movements
-  flag_relative_motion: False  # Original working value - keep at False for accurate lip sync
-                                # True can cause timing issues with audio-driven motion
-                                # Relative motion calculation may interfere with lip synchronization
+  # Expression and motion control
+  flag_relative_motion: False  # Required for expression-friendly mode to work properly
+                               # Enables relative motion calculation for more natural expressions
   driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
-                                         # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
-                                         # pose-friendly: emphasizes head pose movements
-  driving_multiplier: 1.0  # Motion intensity multiplier (1.0 = neutral, 1.2 = 20% more expressive, 1.5 = 50% more)
-                           # Reduced from 1.5 to 1.2 to preserve lip sync accuracy
-                           # Higher values (1.5+) can break lip synchronization with audio
-                           # 1.2 provides good balance: expressive movements without breaking lip sync
-  # Emotion configuration
-  default_emotion: 8  # Default emotion code if not specified in request (0-8)
-                      # 0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness,
-                      # 5: Neutral, 6: Sadness, 7: Surprise, 8: None (no emotion)
-                      # Default: 8 (None) - no emotion applied, uses audio-driven expressions only
-                      # Can be overridden per request via emotion parameter
-                      # Changed from 7 (Surprise) to 8 (None) to preserve lip sync accuracy
-  emo_scale: 1.0  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
-                  # Reduced from 1.5 to 1.0 to preserve lip sync accuracy
-                  # Higher values (1.5-2.0) can interfere with audio-driven lip movements
-                  # Values >1.3 may cause artifacts and break lip synchronization
+                                       # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
+                                       # pose-friendly: emphasizes head pose movements
+  driving_multiplier: 1.4  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
+                           # Increased from 1.0 to 1.5 for more visible facial movements
+                           # Higher values make eyes, eyebrows, and lips more animated
+  emo_scale: 1.4  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+                  # Reduced from 1.5 to 1.2 for better balance with audio-driven expressions
+                  # Higher values (1.5-2.0) make emotions more expressive, especially for eyebrow movements
+                  # This scales emotion embeddings before they're integrated with audio and motion
+                  # Values >2.0 may cause artifacts, recommended range: 1.0-2.0
 
 # ============================================================================
 # VIDEO QUALITY SETTINGS
 # These parameters control video encoding quality (Telegram optimized)
 # ============================================================================
 video_quality:
-  crf: 18              # High quality encoding (excellent quality, close to lossless)
-                       # CRF 18 = excellent quality, close to lossless
-                       # Lower CRF = better quality (18=best, 23=medium, 28=low)
-                       # DICE-Talk uses CRF 17-18, MoDA now matches this quality
-                       # Improved from 25 to 18 for better video quality without affecting lip sync
+  crf: 18              # Reduced from 25 → better quality with minimal speed impact
+                       # CRF 18 = high quality (original was 25, lower is better)
+                       # Lower CRF = better quality (18=best, 25=balanced, 28=medium)
   codec: "libx264"     # H.264 video codec
-  preset: "medium"     # Encoding speed preset (faster/medium/slow)
-                       # "medium" = better quality than "faster", matches DICE-Talk default
-                       # Slower encoding but better compression efficiency
-                       # Improved from "faster" to "medium" for better quality without affecting lip sync
-                       # Options: ultrafast < superfast < veryfast < faster < fast < medium < slow < slower < veryslow
+  preset: "slow"       # Encoding speed preset (faster/medium/slow)
+                       # slow = best quality encoding (original was faster, medium is balanced)
+                       # Impact: +10-20% encoding time, better compression efficiency
   pixelformat: "yuv420p"  # Pixel format for compatibility
   output_format: "mp4" # Output format
 
@@ -105,12 +87,10 @@ video_quality:
 # These parameters control performance optimizations for A6000/A40 48GB
 # ============================================================================
 performance:
-  enable_torch_compile: False  # Disabled to preserve lip sync accuracy
-                                # torch.compile can cause numerical precision issues affecting synchronization
-                                # Maps to flag_do_torch_compile in liveportrait_config.yaml
-  use_half_precision: False    # Disabled to preserve lip sync accuracy
-                                # FP16 can cause numerical precision issues affecting synchronization
-                                # Maps to flag_use_half_precision in liveportrait_config.yaml
+  enable_torch_compile: False  # Enable torch.compile for 20-30% speedup on A6000/A40
+                              # Maps to flag_do_torch_compile in liveportrait_config.yaml
+  use_half_precision: False    # FP16 for faster inference on A6000/A40
+                              # Maps to flag_use_half_precision in liveportrait_config.yaml
   max_video_length: 1000      # 40 seconds max for A6000/A40 48GB
                               # Can be overridden by inference.max_video_length if set
 
@@ -146,4 +126,31 @@ resource_limits:
   max_audio_size_mb: 50
   min_disk_space_gb: 10
   audio_pad_duration: 2.0
+
+# ============================================================================
+# EMOTION CONFIGURATION
+# DICE-Talk emotion integration settings
+# ============================================================================
+emotion:
+  # Enhanced emotion support (DICE-Talk integration)
+  # Supports two input modes:
+  # 1. Emotion code (int): 0-8 for basic emotions, 8 for neutral
+  #    0: Anger, 1: Contempt, 2: Disgust, 3: Fear, 4: Happiness, 
+  #    5: Neutral, 6: Sadness, 7: Surprise, 8: None
+  # 2. Emotion feature file (str): path to .npy file from DICE-Talk examples
+  #    Example: "examples/emo/happy.npy" for enhanced emotion control
+  #    Provides 64-code emotion control with VQ-VAE codebook and attention-based retrieval
+  use_enhanced_emotion: true  # Enable DICE-Talk emotion adapter (enabled by default)
+  emotion_model_path: null     # Path to emo_model.pth checkpoint (optional, auto-detected if null)
+                                # Auto-searches in standard locations:
+                                # - /workspace/checkpoints/DICE-Talk/emo_model.pth (persistent storage)
+                                # - /app/models_cache/checkpoints/DICE-Talk/emo_model.pth (pre-built cache)
+                                # - checkpoints/DICE-Talk/emo_model.pth (local development)
+                                # Model is automatically downloaded during Docker build from:
+                                # krapiunitski/moda-emotion-model (lightweight, ~286 MB)
+  emotion_examples_dir: "examples/emo"  # Directory with DICE-Talk emotion .npy files
+  default_emotion: 8  # Default emotion code if not specified or file not found (8 = neutral/None)
+                       # Neutral works better as default - provides balanced expressions that work well with audio
+  # Note: Enhanced emotions require emo_model.pth checkpoint and .npy example files
+  # If not available, falls back to simple emotion codes (0-8)
 

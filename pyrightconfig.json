@@ -1,0 +1,12 @@
+{
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": false,
+  "typeCheckingMode": "basic",
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*"
+  ],
+  "stubPath": "typings"
+}
+

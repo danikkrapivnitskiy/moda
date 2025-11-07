@@ -665,6 +665,36 @@ except Exception as e:
     print(f"[ERROR] {error_msg}")
     errors.append(error_msg)
 
+# Download DICE-Talk emotion model (optional, for enhanced emotions)
+print("\n[1/2] Downloading DICE-Talk emotion model (optional)...")
+print("       This enables enhanced emotion control with 64-code VQ-VAE")
+print("       If download fails, will fall back to simple emotion codes")
+emotion_repo = f"{hf_username}/moda-emotion-model"
+emotion_path = os.path.join(models_cache, "checkpoints", "DICE-Talk")
+try:
+    # Download only emo_model.pth from lightweight repository (~286 MB)
+    from huggingface_hub import hf_hub_download
+    os.makedirs(emotion_path, exist_ok=True)
+    downloaded_file = hf_hub_download(
+        repo_id=emotion_repo,
+        filename="emo_model.pth",  # Direct file in root, no subdirectory
+        local_dir=emotion_path,
+        local_dir_use_symlinks=False,
+        token=hf_token
+    )
+    # Verify file was downloaded
+    if os.path.exists(downloaded_file) or os.path.exists(os.path.join(emotion_path, "emo_model.pth")):
+        print("[OK] DICE-Talk emotion model downloaded")
+        print(f"     Location: {emotion_path}/emo_model.pth")
+        print(f"     Repository: {emotion_repo} (~286 MB)")
+    else:
+        raise FileNotFoundError("Downloaded file not found at expected location")
+except Exception as e:
+    print(f"[WARN] Failed to download emotion model: {e}")
+    print("       Enhanced emotions will be disabled, using simple emotion codes")
+    print(f"       You can manually download from: {emotion_repo}/emo_model.pth")
+    # Not a fatal error - continue without enhanced emotions
+
 print("=" * 60)
 if errors:
     print(f"\n[ERROR] {len(errors)} model download(s) failed:")
@@ -759,6 +789,7 @@ EOF
 # ============================================================================
 RUN python3 <<'EOF'
 import sys
+import os
 import subprocess
 from packaging import version
 
@@ -812,6 +843,32 @@ except Exception as e:
     error_msg = str(e)
     warnings.append(f"MoDA: {error_msg[:100]}")
     print(f"[WARN] MoDA import: {error_msg[:100]}")
+
+# Check for emotion .npy files (required for enhanced emotions)
+print("\n[INFO] Checking emotion .npy files...")
+emo_dir = 'examples/emo'
+expected_emotions = ['angry', 'contempt', 'disgusted', 'fear', 'happy', 'neutral', 'sad', 'surprised']
+
+if os.path.exists(emo_dir):
+    npy_files = [f for f in os.listdir(emo_dir) if f.endswith('.npy')]
+    npy_names = [f.replace('.npy', '') for f in npy_files]
+    
+    missing = [e for e in expected_emotions if f"{e}.npy" not in npy_files]
+    
+    if len(npy_files) == len(expected_emotions) and not missing:
+        print(f"[OK] All {len(npy_files)} emotion .npy files found")
+        print(f"     Emotions: {', '.join(sorted(npy_names))}")
+    else:
+        warn_msg = f"Emotion .npy files incomplete: {len(npy_files)}/{len(expected_emotions)} found"
+        if missing:
+            warn_msg += f" (missing: {', '.join(missing)})"
+        warnings.append(warn_msg)
+        print(f"[WARN] {warn_msg}")
+        print("[WARN] Enhanced emotions may fall back to simple codes")
+else:
+    warnings.append(f"Emotion directory not found: {emo_dir}")
+    print(f"[WARN] Emotion directory not found: {emo_dir}")
+    print("[WARN] Enhanced emotions will use simple codes (0-8)")
 
 # Check package versions for compatibility
 print("\n[INFO] Verifying package versions...")

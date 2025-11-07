@@ -90,18 +90,58 @@ class AudioProcessor(object):
         log(OmegaConf.to_yaml(cfg))
 
         # setting device 
+        # CRITICAL: device_id should be passed from parent pipeline to ensure consistency
+        # If not provided, fall back to config (for backward compatibility)
+        if device_id is None:
+            device_id = cfg.device_params.get('device_id', 0)
         self.device_id = device_id
         self.use_half = cfg.device_params.flag_use_half_precision
+        
         if cfg.device_params.flag_force_cpu:
+            # Only allow CPU if explicitly forced (for testing/development)
             self.device = 'cpu'
+            log("[WARN] CPU mode forced via flag_force_cpu - this will be 10-100x slower!")
         else:
             try:
                 if torch.backends.mps.is_available():
                     self.device = 'mps'
+                elif torch.cuda.is_available():
+                    # CUDA should already be initialized by parent pipeline
+                    # Just verify device is accessible
+                    try:
+                        torch.cuda.get_device_properties(self.device_id)
+                        self.device = 'cuda:' + str(self.device_id)
+                        log(f"[INFO] AudioProcessor using CUDA device {self.device_id}")
+                    except (RuntimeError, AssertionError) as e:
+                        # In production RunPod, CPU fallback is not acceptable
+                        error_msg = (
+                            f"CUDA device {self.device_id} not accessible: {e}\n"
+                            f"This is a production environment - CPU fallback would be 10-100x slower.\n"
+                            f"Please check RunPod worker configuration."
+                        )
+                        log(f"[ERROR] {error_msg}")
+                        raise RuntimeError(error_msg)
                 else:
-                    self.device = 'cuda:' + str(self.device_id)
-            except:
-                self.device = 'cuda:' + str(self.device_id)
+                    # In production RunPod, CPU fallback is not acceptable
+                    error_msg = (
+                        "CUDA not available in production RunPod environment.\n"
+                        "CPU fallback would be 10-100x slower and is not acceptable.\n"
+                        "Please check RunPod worker has GPU assigned."
+                    )
+                    log(f"[ERROR] {error_msg}")
+                    raise RuntimeError(error_msg)
+            except RuntimeError:
+                # Re-raise RuntimeError (our explicit errors)
+                raise
+            except Exception as e:
+                # For other exceptions, also fail (don't silently fallback to CPU)
+                error_msg = (
+                    f"Error checking device availability: {e}\n"
+                    f"In production, CPU fallback is not acceptable (10-100x slower).\n"
+                    f"Please check RunPod worker configuration."
+                )
+                log(f"[ERROR] {error_msg}")
+                raise RuntimeError(error_msg)
 
         # init audio separator
         self.audio_separator = None

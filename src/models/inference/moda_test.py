@@ -70,16 +70,54 @@ class LiveVASAPipeline(object):
         self.device_id = cfg.device_id
         self.device = f"cuda:{self.device_id}"
         
-        # 1 load audio processor
-        self.audio_processor: AudioProcessor = AudioProcessor(cfg_path=cfg.audio_model_config, is_training=False)
+        # CRITICAL: Ensure CUDA is ready before creating AudioProcessor
+        # AudioProcessor will try to load models to GPU immediately, so CUDA must be initialized
+        # In RunPod production environment, CPU fallback is not acceptable (10-100x slower)
+        if not torch.cuda.is_available():
+            error_msg = (
+                f"CUDA is not available! This is a production RunPod environment that requires GPU.\n"
+                f"CPU fallback would be 10-100x slower and is not acceptable.\n"
+                f"Please check:\n"
+                f"1. RunPod worker has GPU assigned\n"
+                f"2. CUDA drivers are properly installed in the container\n"
+                f"3. GPU is not locked by another process"
+            )
+            log(f"[ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
+        
+        try:
+            # Initialize CUDA driver by accessing device properties
+            torch.cuda.get_device_properties(self.device_id)
+            # Perform a simple CUDA operation to ensure driver is fully initialized
+            test_tensor = torch.zeros(1).cuda(self.device_id)
+            del test_tensor
+            torch.cuda.synchronize(self.device_id)
+            log(f"[INFO] CUDA device {self.device_id} is ready before AudioProcessor initialization")
+        except (RuntimeError, AssertionError) as e:
+            error_msg = (
+                f"CUDA device {self.device_id} initialization failed: {e}\n"
+                f"This is a production RunPod environment that requires GPU.\n"
+                f"CPU fallback would be 10-100x slower and is not acceptable.\n"
+                f"Please check RunPod worker configuration and GPU availability."
+            )
+            log(f"[ERROR] {error_msg}")
+            raise RuntimeError(error_msg)
+        
+        # 1 load audio processor - CRITICAL: Pass device_id to ensure correct GPU usage
+        self.audio_processor: AudioProcessor = AudioProcessor(
+            cfg_path=cfg.audio_model_config, 
+            is_training=False,
+            device_id=self.device_id  # Pass device_id from pipeline config
+        )
         log(f"Load audio_processor done.")
 
         if cfg.motion_models_config is not None and load_motion_generator:
             motion_models_config = OmegaConf.load(cfg.motion_models_config)
             log(f"Load motion_models_config from {osp.realpath(cfg.motion_models_config)} done.")
             
-            # Merge emo_scale from primary_config if available
+            # Merge parameters from primary_config if available
             if primary_config is not None:
+                # Merge emo_scale from motion_processor section
                 emo_scale = primary_config.get('motion_processor', {}).get('emo_scale')
                 if emo_scale is not None:
                     if 'motion_generator' not in motion_models_config:
@@ -260,12 +298,65 @@ class LiveVASAPipeline(object):
         audio_emb = self.audio_processor.get_long_audio_emb(audio_path)
         return audio_emb, audio_path, add_frames, ori_audio_path
 
-    def driven_sample(self, image_path: str, audio_path: str, cfg_scale: float=1., emo: int=8, save_dir=None, smooth=False, silent_audio_path = None, silent_mode="post"):
+    def load_emotion_features(self, emotion_input):
+        """
+        Load emotion features from code or file.
+        
+        Args:
+            emotion_input: Can be:
+                - int (0-8): Basic emotion code
+                - str: Path to .npy emotion feature file (DICE-Talk format)
+        
+        Returns:
+            Processed emotion input (int or str path) for motion generator
+        """
+        if isinstance(emotion_input, int):
+            # Basic emotion code - validate range
+            if 0 <= emotion_input <= 8:
+                return emotion_input
+            else:
+                log(f"[WARN] Invalid emotion code {emotion_input}, using neutral (8)")
+                return 8
+        elif isinstance(emotion_input, str):
+            # Check if it's a .npy file path
+            if emotion_input.endswith('.npy'):
+                if osp.exists(emotion_input):
+                    return emotion_input
+                else:
+                    log(f"[WARN] Emotion file not found: {emotion_input}, using neutral (8)")
+                    return 8
+            else:
+                # Try to interpret as emotion name and convert to code
+                emotion_name = emotion_input.lower()
+                emotion_code_map = {
+                    'anger': 0, 'angry': 0,
+                    'contempt': 1,
+                    'disgust': 2, 'disgusted': 2,
+                    'fear': 3,
+                    'happiness': 4, 'happy': 4,
+                    'neutral': 5,
+                    'sadness': 6, 'sad': 6,
+                    'surprise': 7, 'surprised': 7,
+                    'none': 8
+                }
+                if emotion_name in emotion_code_map:
+                    return emotion_code_map[emotion_name]
+                else:
+                    log(f"[WARN] Unknown emotion name: {emotion_input}, using neutral (8)")
+                    return 8
+        else:
+            log(f"[WARN] Invalid emotion input type: {type(emotion_input)}, using neutral (8)")
+            return 8
+
+    def driven_sample(self, image_path: str, audio_path: str, cfg_scale: float=1., emo=8, save_dir=None, smooth=False, silent_audio_path = None, silent_mode="post"):
         assert self.motion_generator is not None, f"Motion Generator is not set"
         reference_name = osp.basename(image_path).split('.')[0]
         audio_name = osp.basename(audio_path).split('.')[0]
         # get audio embeddings
         audio_emb, audio_path, add_frames, ori_audio_path = self.process_audio(audio_path, silent_audio_path, mode=silent_mode)
+
+        # Process emotion input (supports int codes and .npy file paths)
+        emo_processed = self.load_emotion_features(emo)
 
         # get src image infos
         source_rgb_lst = self.motion_processer.read_image(image_path)
@@ -273,7 +364,7 @@ class LiveVASAPipeline(object):
         f_s, x_s_info = self.motion_processer.prepare_source(src_img_256x256)
         prev_motion, rescale_ratio = self.get_prev_motion(x_s_info)
         # generate motions
-        motion = self.motion_generator.sample(audio_emb, x_s_info["kp"], prev_motion=prev_motion, cfg_scale=cfg_scale, emo=emo)
+        motion = self.motion_generator.sample(audio_emb, x_s_info["kp"], prev_motion=prev_motion, cfg_scale=cfg_scale, emo=emo_processed)
         if add_frames > 0:
             standard_motion = motion[-max(add_frames*3//4, 1)]
             motion = self.modulate_lip(standard_motion, motion, alpha=5)

@@ -59,7 +59,6 @@ def graceful_shutdown(signum, frame):
     
     # Clear GPU memory
     try:
-        import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print("[INFO] GPU memory cleared on shutdown")
@@ -81,11 +80,29 @@ import json
 import time
 import fcntl
 import shutil
+import threading
+# Import torch globally since it's used in multiple places
+# This is required for MoDA - if torch is not available, the module cannot function
+try:
+    import torch  # pyright: ignore[reportMissingImports]  # PyTorch is installed in Docker container
+except ImportError as e:
+    print(f"[ERROR] Failed to import PyTorch: {e}")
+    print("       PyTorch is required for MoDA video generation")
+    print("       Please ensure PyTorch is installed in the environment")
+    raise
 from omegaconf import OmegaConf
 
 # Lazy initialization to avoid import conflicts
 pipe = None
 runpod_config = None
+
+# Global lock for GPU access - prevents concurrent requests from using GPU simultaneously
+# This is critical because CUDA operations are not thread-safe and can cause "device is busy" errors
+gpu_lock = threading.Lock()
+
+# Global lock for pipeline initialization - prevents parallel initialization
+# This prevents "CUDA device is busy" when multiple threads try to initialize simultaneously
+pipe_init_lock = threading.Lock()
 
 def convert_audio_to_wav(audio_path):
     """
@@ -271,6 +288,133 @@ def safe_base64_decode(data, field_name):
     except Exception as e:
         raise ValueError(f"Invalid base64 for {field_name}: {str(e)}")
 
+def process_emotion_input(emotion_input, temp_dir):
+    """
+    Process emotion input from RunPod request.
+    
+    Supports multiple input modes:
+    1. Integer code (0-8): Basic emotions
+       - 0: Anger, 1: Contempt, 2: Disgust, 3: Fear
+       - 4: Happiness, 5: Neutral, 6: Sadness, 7: Surprise
+       - 8: None (neutral, default)
+       - Automatically tries to find .npy file first, falls back to integer code
+    2. Emotion name string ("happy", "sad", etc.): Auto-finds .npy file
+       - Maps to examples/emo/{emotion_name}.npy
+       - Uses DICE-Talk enhanced emotions if available
+    3. Base64 encoded .npy file: Enhanced DICE-Talk emotion features
+       - Upload .npy file from DICE-Talk examples/emo/ directory
+       - Provides 64-code emotion control with attention-based retrieval
+    4. File path to .npy: Direct path to emotion file
+    
+    Args:
+        emotion_input: int, str (emotion name, base64 .npy, or file path), or None
+        temp_dir: temporary directory for files
+    
+    Returns:
+        Processed emotion (int, str path to .npy, or emotion name for .npy lookup)
+    """
+    # Load config to get emotion_examples_dir and default_emotion
+    config = load_runpod_config()
+    emotion_examples_dir = config.get('emotion', {}).get('emotion_examples_dir', 'examples/emo')
+    default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
+    
+    if emotion_input is None:
+        return default_emotion  # Use default_emotion from config
+    
+    # Emotion code to name mapping (for .npy file lookup)
+    emotion_code_to_name = {
+        0: 'angry',
+        1: 'contempt',
+        2: 'disgusted',
+        3: 'fear',
+        4: 'happy',
+        5: 'neutral',
+        6: 'sad',
+        7: 'surprised',
+        8: 'neutral'  # None -> neutral
+    }
+    
+    # Emotion name mapping (for string input)
+    emotion_name_map = {
+        'anger': 'angry', 'angry': 'angry',
+        'contempt': 'contempt',
+        'disgust': 'disgusted', 'disgusted': 'disgusted',
+        'fear': 'fear',
+        'happiness': 'happy', 'happy': 'happy',
+        'neutral': 'neutral',
+        'sadness': 'sad', 'sad': 'sad',
+        'surprise': 'surprised', 'surprised': 'surprised',
+        'none': 'neutral'
+    }
+    
+    if isinstance(emotion_input, int):
+        # Validate emotion code
+        if 0 <= emotion_input <= 8:
+            # Try to find .npy file for this emotion code
+            emotion_name = emotion_code_to_name.get(emotion_input, 'neutral')
+            npy_path = os.path.join(emotion_examples_dir, f"{emotion_name}.npy")
+            
+            # If .npy file exists, return path for enhanced emotions
+            if os.path.exists(npy_path):
+                print(f"[INFO] Found .npy file for emotion code {emotion_input} ({emotion_name})")
+                return npy_path
+            else:
+                # Fallback to integer code
+                return emotion_input
+        else:
+            print(f"[WARN] Invalid emotion code {emotion_input}, using default_emotion ({default_emotion})")
+            return default_emotion
+    
+    if isinstance(emotion_input, str):
+        # Check if it's base64 encoded .npy file
+        try:
+            # Try to decode base64
+            emotion_data = base64.b64decode(emotion_input)
+            
+            # Verify it's a valid .npy file (starts with magic bytes)
+            if emotion_data[:6] == b'\x93NUMPY':
+                # Save to temp file
+                emotion_path = os.path.join(temp_dir, "emotion_features.npy")
+                with open(emotion_path, 'wb') as f:
+                    f.write(emotion_data)
+                print(f"[INFO] Saved emotion features to {emotion_path}")
+                return emotion_path
+        except Exception:
+            # Not base64, continue to check other formats
+            pass
+        
+        # Check if it's a file path
+        if emotion_input.endswith('.npy'):
+            if os.path.exists(emotion_input):
+                return emotion_input
+            else:
+                print(f"[WARN] Emotion file not found: {emotion_input}, using default_emotion ({default_emotion})")
+                return default_emotion
+        
+        # Try as emotion name string (like DICE-Talk)
+        emotion_name = emotion_input.lower()
+        
+        if emotion_name in emotion_name_map:
+            mapped_name = emotion_name_map[emotion_name]
+            npy_path = os.path.join(emotion_examples_dir, f"{mapped_name}.npy")
+            
+            if os.path.exists(npy_path):
+                print(f"[INFO] Found .npy file for emotion: {mapped_name}")
+                return npy_path
+            else:
+                print(f"[WARN] Emotion .npy file not found: {npy_path}, using emotion code")
+                # Fallback to emotion code
+                emotion_code_map = {
+                    'angry': 0, 'contempt': 1, 'disgusted': 2, 'fear': 3,
+                    'happy': 4, 'neutral': 5, 'sad': 6, 'surprised': 7
+                }
+                return emotion_code_map.get(mapped_name, default_emotion)
+        else:
+            print(f"[WARN] Unknown emotion string: {emotion_input}, using default_emotion ({default_emotion})")
+            return default_emotion
+    
+    return default_emotion
+
 def load_runpod_config():
     """Load RunPod configuration from YAML file"""
     global runpod_config
@@ -343,7 +487,7 @@ def ensure_models_downloaded():
         Ensure model is available using 3-tier fallback with file locking for multi-worker safety:
         1. Check persistent storage (fastest)
         2. Copy from pre-built cache (fast cold start)
-        3. Download from HuggingFace (slow fallback)
+        3. Download from HuggingFace (slow fallback) - requires repo_id and HUGGINGFACE_USERNAME
         """
         lock_file = f"/tmp/{model_name}.lock"
         prebuilt_path = os.path.join(prebuilt_cache, model_name)
@@ -396,6 +540,20 @@ def ensure_models_downloaded():
             
             # Tier 3: Download from HuggingFace (slowest fallback)
             # Only reached if models are not in persistent storage or pre-built cache
+            # NOW check if HUGGINGFACE_USERNAME and repo_id are available
+            if not repo_id:
+                error_msg = (
+                    f"HUGGINGFACE_USERNAME environment variable is not set!\n"
+                    f"Required for downloading {model_name} from HuggingFace (Tier 3 fallback).\n"
+                    f"Please set it to your HuggingFace username:\n"
+                    f"  export HUGGINGFACE_USERNAME='your-username'\n"
+                    f"Or in RunPod: Add HUGGINGFACE_USERNAME to environment variables\n"
+                    f"\n"
+                    f"Note: If models are pre-built in Docker image, HUGGINGFACE_USERNAME is not needed."
+                )
+                print(f"[ERROR] {error_msg}")
+                raise ValueError(error_msg)
+            
             print(f"[INFO] Downloading {model_name} from HuggingFace...")
             print(f"       This may take several minutes...")
             print(f"       Note: HF_TOKEN should be set for private repositories")
@@ -431,25 +589,20 @@ def ensure_models_downloaded():
     # Ensure all required models are available
     print("[INFO] Checking required models...")
     
-    # Load model repositories from environment variables - REQUIRED
+    # HUGGINGFACE_USERNAME is only needed for Tier 3 (download from HuggingFace)
+    # Don't check it here - check inside ensure_model() only when Tier 3 is needed
     HUGGINGFACE_USERNAME = os.getenv('HUGGINGFACE_USERNAME')
     
-    if not HUGGINGFACE_USERNAME:
-        error_msg = (
-            "HUGGINGFACE_USERNAME environment variable is not set!\n"
-            "Please set it to your HuggingFace username:\n"
-            "  export HUGGINGFACE_USERNAME='your-username'\n"
-            "Or in RunPod: Add HUGGINGFACE_USERNAME to environment variables"
-        )
-        print(f"[ERROR] {error_msg}")
-        raise ValueError(error_msg)
+    # Build repository IDs - only needed if Tier 3 download is required
+    # Will be checked inside ensure_model() when actually needed
+    MODA_PRETRAIN_REPO = f'{HUGGINGFACE_USERNAME}/moda-pretrain-weights' if HUGGINGFACE_USERNAME else None
     
-    # Build repository IDs - use only custom repositories
-    MODA_PRETRAIN_REPO = f'{HUGGINGFACE_USERNAME}/moda-pretrain-weights'
-    
-    print(f"[INFO] Using HuggingFace repositories for user: {HUGGINGFACE_USERNAME}")
-    print(f"[INFO] Model repository:")
-    print(f"  - MoDA pretrain weights: {MODA_PRETRAIN_REPO}")
+    if HUGGINGFACE_USERNAME:
+        print(f"[INFO] HuggingFace username configured: {HUGGINGFACE_USERNAME}")
+        print(f"       Will use if models need to be downloaded (Tier 3 fallback)")
+    else:
+        print("[INFO] HUGGINGFACE_USERNAME not set - OK if models are pre-built in Docker image")
+        print("       Models will be copied from /app/models_cache (Tier 2) or persistent storage (Tier 1)")
     
     # Check if HF_TOKEN is set (only needed for Tier 3 fallback download)
     # If models are pre-built in Docker image (Tier 2), token is NOT needed in RunPod
@@ -472,76 +625,186 @@ def ensure_models_downloaded():
         required_subdirs=required_subdirs
     )
     
+    # Emotion model: DICE-Talk emotion adapter (optional, ~286 MB)
+    # Auto-download if not found in standard locations
+    emotion_checkpoints_dir = "/workspace/checkpoints/DICE-Talk"
+    emotion_model_path = os.path.join(emotion_checkpoints_dir, "emo_model.pth")
+    emotion_repo = f'{HUGGINGFACE_USERNAME}/moda-emotion-model' if HUGGINGFACE_USERNAME else None
+    
+    if not os.path.exists(emotion_model_path):
+        # Check pre-built cache first
+        prebuilt_emotion_path = "/app/models_cache/checkpoints/DICE-Talk/emo_model.pth"
+        if os.path.exists(prebuilt_emotion_path):
+            print("[INFO] Copying emotion model from pre-built cache...")
+            os.makedirs(emotion_checkpoints_dir, exist_ok=True)
+            shutil.copy2(prebuilt_emotion_path, emotion_model_path)
+            print("[OK] Emotion model copied from pre-built cache")
+        elif emotion_repo:
+            # Try to download from HuggingFace (optional, non-fatal)
+            try:
+                from huggingface_hub import hf_hub_download
+                print("[INFO] Downloading emotion model from HuggingFace (optional)...")
+                print(f"       Repository: {emotion_repo} (~286 MB)")
+                os.makedirs(emotion_checkpoints_dir, exist_ok=True)
+                hf_hub_download(
+                    repo_id=emotion_repo,
+                    filename="emo_model.pth",  # Direct file in root, no subdirectory
+                    local_dir=emotion_checkpoints_dir,
+                    local_dir_use_symlinks=False,
+                    token=hf_token
+                )
+                print("[OK] Emotion model downloaded")
+            except Exception as e:
+                print(f"[WARN] Failed to download emotion model: {e}")
+                print("       Enhanced emotions will be disabled, using simple emotion codes")
+                if emotion_repo:
+                    print(f"       You can manually download from: {emotion_repo}/emo_model.pth")
+                else:
+                    print("       Set HUGGINGFACE_USERNAME to enable automatic download")
+        else:
+            print("[WARN] Emotion model not found and HUGGINGFACE_USERNAME not set")
+            print("       Enhanced emotions will be disabled, using simple emotion codes")
+            print("       Set HUGGINGFACE_USERNAME to enable automatic download")
+    else:
+        print("[OK] Emotion model found in persistent storage")
+    
     print("[OK] All models are ready")
+
+def ensure_cuda_ready(max_retries=5, retry_delay=1.0):
+    """
+    Ensure CUDA is properly initialized and ready for use.
+    Retries with exponential backoff if CUDA driver is not ready.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        retry_delay: Initial delay between retries in seconds
+    
+    Returns:
+        bool: True if CUDA is ready, False otherwise
+    """
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            # Check if CUDA is available
+            if not torch.cuda.is_available():
+                if attempt < max_retries - 1:
+                    delay = retry_delay * (2 ** attempt)  # Exponential backoff
+                    print(f"[INFO] CUDA not available, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print("[ERROR] CUDA not available after all retries")
+                    return False
+            
+            # Try to initialize CUDA by accessing device properties
+            device_id = int(os.getenv('CUDA_DEVICE_ID', '0'))
+            try:
+                torch.cuda.get_device_properties(device_id)
+                # Perform a simple CUDA operation to ensure driver is fully initialized
+                test_tensor = torch.zeros(1).cuda(device_id)
+                del test_tensor
+                torch.cuda.synchronize(device_id)
+                print(f"[INFO] CUDA device {device_id} is ready and initialized")
+                return True
+            except (RuntimeError, AssertionError) as e:
+                if attempt < max_retries - 1:
+                    delay = retry_delay * (2 ** attempt)
+                    print(f"[WARN] CUDA device {device_id} not ready: {e}")
+                    print(f"[INFO] Retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"[ERROR] CUDA device {device_id} failed to initialize after all retries: {e}")
+                    return False
+                    
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = retry_delay * (2 ** attempt)
+                print(f"[WARN] Error checking CUDA availability: {e}")
+                print(f"[INFO] Retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(delay)
+                continue
+            else:
+                print(f"[ERROR] Failed to initialize CUDA after all retries: {e}")
+                return False
+    
+    return False
 
 def get_pipe():
     """Lazy initialization of MoDA LiveVASAPipeline with model auto-download"""
     global pipe
+    # CRITICAL: Thread-safe initialization to prevent "CUDA device is busy" errors
+    # If multiple threads/workers try to initialize simultaneously, only one will proceed
     if pipe is None:
-        # Ensure models are downloaded first
-        try:
-            ensure_models_downloaded()
-        except Exception as e:
-            print(f"[ERROR] Model download failed: {e}")
-            raise
-        
-        # Load primary configuration using ConfigManager
-        import sys
-        # Add src to path for imports (both /app/src for Docker and relative for local)
-        src_paths = ['/app/src', str(Path(__file__).parent / 'src')]
-        for src_path in src_paths:
-            if src_path not in sys.path:
-                sys.path.insert(0, src_path)
-        from utils.config_manager import get_config_manager
-        
-        config_manager = get_config_manager()
-        primary_config = config_manager.load_primary_config()
-        
-        # Apply memory optimization environment variables
-        memory_env = config_manager.get_memory_optimization_env(primary_config)
-        for env_key, env_value in memory_env.items():
-            os.environ[env_key] = env_value
-            print(f"[INFO] Set {env_key}={env_value} from primary config")
-        
-        # Get inference config path from primary config
-        config = load_runpod_config()  # Keep for backward compatibility
-        cfg_path = primary_config.get('inference_config_path', config.inference_config_path)
-        
-        print(f"[INFO] Initializing MoDA pipeline with config: {cfg_path}")
-        print(f"[INFO] Using enterprise configuration manager for automatic config merging")
-        
-        # Merge primary config into inference config
-        inference_cfg = config_manager.merge_configs(
-            primary_config=primary_config,
-            nested_config_path=cfg_path,
-            section='inference'
-        )
-        
-        # Allow device_id override from environment (backward compatibility)
-        if os.getenv('CUDA_DEVICE_ID'):
-            device_id_override = int(os.getenv('CUDA_DEVICE_ID'))
-            inference_cfg.device_id = device_id_override
-            print(f"[INFO] Device ID overridden from CUDA_DEVICE_ID env var: {device_id_override}")
-        
-        # Save merged config to temp file
-        import tempfile
-        from omegaconf import OmegaConf
-        temp_cfg_path = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
-        OmegaConf.save(inference_cfg, temp_cfg_path.name)
-        temp_cfg_path.close()
-        merged_cfg_path = temp_cfg_path.name
-        
-        # Import MoDA pipeline
-        from models.inference.moda_test import LiveVASAPipeline
-        
-        # Initialize pipeline with merged config and primary config for further merging
-        pipe = LiveVASAPipeline(
-            cfg_path=merged_cfg_path,
-            load_motion_generator=True,
-            motion_mean_std_path=primary_config.get('motion_mean_std_path', config.get('motion_mean_std_path', None)),
-            primary_config=primary_config  # Pass primary config for motion processor merging
-        )
-        print("[OK] MoDA pipeline initialized with enterprise configuration system")
+        # Acquire lock to prevent parallel initialization
+        with pipe_init_lock:
+            # Double-check pattern: another thread might have initialized while we waited
+            if pipe is None:
+                # Ensure models are downloaded first
+                try:
+                    ensure_models_downloaded()
+                except Exception as e:
+                    print(f"[ERROR] Model download failed: {e}")
+                    raise
+                
+                # Load primary configuration using ConfigManager
+                import sys
+                # Add src to path for imports (both /app/src for Docker and relative for local)
+                src_paths = ['/app/src', str(Path(__file__).parent / 'src')]
+                for src_path in src_paths:
+                    if src_path not in sys.path:
+                        sys.path.insert(0, src_path)
+                from utils.config_manager import get_config_manager
+                
+                config_manager = get_config_manager()
+                primary_config = config_manager.load_primary_config()
+                
+                # Apply memory optimization environment variables
+                memory_env = config_manager.get_memory_optimization_env(primary_config)
+                for env_key, env_value in memory_env.items():
+                    os.environ[env_key] = env_value
+                    print(f"[INFO] Set {env_key}={env_value} from primary config")
+                
+                # Get inference config path from primary config
+                config = load_runpod_config()  # Keep for backward compatibility
+                cfg_path = primary_config.get('inference_config_path', config.inference_config_path)
+                
+                print(f"[INFO] Initializing MoDA pipeline with config: {cfg_path}")
+                print(f"[INFO] Using enterprise configuration manager for automatic config merging")
+                
+                # Merge primary config into inference config
+                inference_cfg = config_manager.merge_configs(
+                    primary_config=primary_config,
+                    nested_config_path=cfg_path,
+                    section='inference'
+                )
+                
+                # Allow device_id override from environment (backward compatibility)
+                if os.getenv('CUDA_DEVICE_ID'):
+                    device_id_override = int(os.getenv('CUDA_DEVICE_ID'))
+                    inference_cfg.device_id = device_id_override
+                    print(f"[INFO] Device ID overridden from CUDA_DEVICE_ID env var: {device_id_override}")
+                
+                # Save merged config to temp file
+                import tempfile
+                from omegaconf import OmegaConf
+                temp_cfg_path = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+                OmegaConf.save(inference_cfg, temp_cfg_path.name)
+                temp_cfg_path.close()
+                merged_cfg_path = temp_cfg_path.name
+                
+                # Import MoDA pipeline
+                from models.inference.moda_test import LiveVASAPipeline
+                
+                # Initialize pipeline with merged config and primary config for further merging
+                pipe = LiveVASAPipeline(
+                    cfg_path=merged_cfg_path,
+                    load_motion_generator=True,
+                    motion_mean_std_path=primary_config.get('motion_mean_std_path', config.get('motion_mean_std_path', None)),
+                    primary_config=primary_config  # Pass primary config for motion processor merging
+                )
+                print("[OK] MoDA pipeline initialized with enterprise configuration system")
     return pipe
 
 def check_cuda_info():
@@ -560,7 +823,6 @@ def check_cuda_info():
     
     # PyTorch CUDA info
     try:
-        import torch
         info["pytorch_version"] = torch.__version__
         info["cuda_available"] = torch.cuda.is_available()
         
@@ -621,9 +883,7 @@ def check_cuda_info():
         info["warnings"].append(f"nvidia-smi check failed: {e}")
     
     # Check torchvision::nms operator
-    # Import torch first to avoid circular import issues
     try:
-        import torch
         # Wait a bit to ensure torchvision is fully initialized
         import sys
         if 'torchvision' in sys.modules:
@@ -845,111 +1105,85 @@ def handler(event):
             print(f"   Note: Video quality (fps, crf, codec, preset) is configured in liveportrait_config.yaml")
             print(f"         Current settings: fps=25, crf=25, codec=libx264, preset=faster")
             
-            # Get pipe (lazy init on first request)
-            pipe = get_pipe()
-            
-            # Clear GPU cache before inference to maximize available memory
+            # CRITICAL: Acquire GPU lock to prevent concurrent requests from using GPU simultaneously
+            # This prevents "CUDA device is busy" errors when multiple requests arrive at the same time
+            print("[INFO] Acquiring GPU lock for exclusive access...")
+            gpu_lock.acquire()
             try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    mem_allocated = torch.cuda.memory_allocated() / 1024**3
-                    mem_reserved = torch.cuda.memory_reserved() / 1024**3
-                    print(f"[INFO] GPU memory before inference: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved")
-            except Exception as e:
-                print(f"[WARN] Failed to clear GPU cache: {e}")
-            
-            # Process video using driven_sample
-            start = time.time()
-            
-            # driven_sample parameters (method signature from moda_test.py line 213):
-            # - image_path, audio_path, cfg_scale=1., emo=8, save_dir=None, 
-            #   smooth=False, silent_audio_path=None, silent_mode="post"
-            # Get optional parameters from input
-            cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
-            smooth = input_data.get("smooth", False)  # Smooth motion transitions
-            
-            # Emotion mapping: support both "emo" (int) and "emotion" (string or int)
-            # Emotion codes: 0=Anger, 1=Contempt, 2=Disgust, 3=Fear, 4=Happiness, 
-            #                 5=Neutral, 6=Sadness, 7=Surprise, 8=None
-            emotion_map = {
-                'anger': 0, 'angry': 0,
-                'contempt': 1,
-                'disgust': 2,
-                'fear': 3, 'afraid': 3,
-                'happiness': 4, 'happy': 4, 'joy': 4, 'joyful': 4,
-                'neutral': 5,
-                'sadness': 6, 'sad': 6,
-                'surprise': 7, 'surprised': 7,
-                'none': 8, 'no': 8
-            }
-            
-            # Get default emotion from config
-            try:
-                from utils.config_manager import get_config_manager
-                config_manager = get_config_manager()
-                primary_config = config_manager.load_primary_config()
-                default_emo = primary_config.get('motion_processor', {}).get('default_emotion', 8)
-                print(f"[INFO] Loaded default_emotion from config: {default_emo}")
-            except Exception as e:
-                print(f"[WARN] Failed to load config for default_emotion: {e}, using 8")
-                default_emo = 8
-            if default_emo is None:
-                default_emo = 8
-                print(f"[WARN] default_emotion was None, using fallback: 8")
-            
-            # Try to get emotion from input (support both "emo" and "emotion" keys)
-            emo_input = input_data.get("emotion") or input_data.get("emo")
-            
-            if emo_input is None:
-                emo = default_emo
-            elif isinstance(emo_input, (int, float)):
-                # Numeric input: validate range
-                emo = int(emo_input)
-                if emo < 0 or emo > 8:
-                    print(f"[WARN] Invalid emotion code {emo}, using default {default_emo}")
-                    emo = default_emo
-            elif isinstance(emo_input, str):
-                # String input: convert to code
-                emo_lower = emo_input.lower().strip()
-                emo = emotion_map.get(emo_lower, default_emo)
-                if emo == default_emo and emo_lower not in emotion_map:
-                    print(f"[WARN] Unknown emotion '{emo_input}', using default {default_emo}")
-            else:
-                emo = default_emo
-            
-            # Create temporary directory for output (driven_sample needs save_dir, not file path)
-            save_dir = tempfile.mkdtemp()
-            
-            # Emotion name mapping for logging
-            emo_names = {0: 'Anger', 1: 'Contempt', 2: 'Disgust', 3: 'Fear', 
-                        4: 'Happiness', 5: 'Neutral', 6: 'Sadness', 7: 'Surprise', 8: 'None'}
-            emo_name = emo_names.get(emo, f'Unknown({emo})')
-            
-            print(f"   Save dir: {save_dir}")
-            print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo} ({emo_name}), smooth={smooth}")
-            
-            # Call driven_sample (returns path to generated video)
-            output_path = pipe.driven_sample(
-                image_path=img_path,
-                audio_path=aud_path,
-                cfg_scale=cfg_scale,
-                emo=emo,
-                save_dir=save_dir,
-                smooth=smooth
-            )
-            timing['inference'] = time.time() - start
-            
-            print(f"   Generated video: {output_path}")
-            
-            # Clear GPU memory after inference
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    print("[INFO] GPU memory cleared")
-            except Exception as e:
-                print(f"[WARN] Failed to clear GPU memory: {e}")
+                # Get pipe (lazy init on first request)
+                pipe = get_pipe()
+                
+                # Clear GPU cache before inference to maximize available memory
+                # Synchronize CUDA operations to ensure GPU is ready
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+                        torch.cuda.empty_cache()
+                        mem_allocated = torch.cuda.memory_allocated() / 1024**3
+                        mem_reserved = torch.cuda.memory_reserved() / 1024**3
+                        print(f"[INFO] GPU memory before inference: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved")
+                except Exception as e:
+                    print(f"[WARN] Failed to clear GPU cache: {e}")
+                
+                # Process video using driven_sample
+                start = time.time()
+                
+                # Create temporary directory for processing (needed for emotion .npy files)
+                temp_dir = tempfile.mkdtemp()
+                
+                # driven_sample parameters (method signature from moda_test.py line 213):
+                # - image_path, audio_path, cfg_scale=1., emo=8, save_dir=None, 
+                #   smooth=False, silent_audio_path=None, silent_mode="post"
+                # Get optional parameters from input
+                cfg_scale = input_data.get("cfg_scale", 1.0)  # Guidance scale for generation
+                
+                # Get default_emotion from config (emotion.default_emotion)
+                config = load_runpod_config()
+                default_emotion = config.get('emotion', {}).get('default_emotion', 8)  # Read from emotion section, not motion_processor
+                
+                # Support both "emo" and "emotion" keys (emotion takes priority if both present)
+                emo_input = input_data.get("emotion") or input_data.get("emo")
+                if emo_input is None:
+                    emo_input = default_emotion
+                    print(f"[INFO] No emotion specified in request, using default_emotion from config: {default_emotion}")
+                else:
+                    print(f"[INFO] Emotion input from request: {emo_input} (type: {type(emo_input).__name__})")
+                
+                emo = process_emotion_input(emo_input, temp_dir)  # Process emotion (int code or .npy file)
+                print(f"[INFO] Processed emotion result: {emo} (type: {type(emo).__name__})")
+                smooth = input_data.get("smooth", False)  # Smooth motion transitions
+                
+                # Create temporary directory for output (driven_sample needs save_dir, not file path)
+                save_dir = tempfile.mkdtemp()
+                
+                print(f"   Save dir: {save_dir}")
+                print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo}, smooth={smooth}")
+                
+                # Call driven_sample (returns path to generated video)
+                output_path = pipe.driven_sample(
+                    image_path=img_path,
+                    audio_path=aud_path,
+                    cfg_scale=cfg_scale,
+                    emo=emo,
+                    save_dir=save_dir,
+                    smooth=smooth
+                )
+                timing['inference'] = time.time() - start
+                
+                print(f"   Generated video: {output_path}")
+                
+                # Clear GPU memory after inference with synchronization
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+                        torch.cuda.empty_cache()
+                        print("[INFO] GPU memory cleared and synchronized")
+                except Exception as e:
+                    print(f"[WARN] Failed to clear GPU memory: {e}")
+            finally:
+                # Always release GPU lock, even if an error occurs
+                gpu_lock.release()
+                print("[INFO] GPU lock released")
             
             # Read and encode output video
             start = time.time()
@@ -992,13 +1226,20 @@ def handler(event):
                     except Exception as e:
                         print(f"[WARN] Failed to cleanup {name} at {path}: {e}")
             
-            # Cleanup temporary save directory
+            # Cleanup temporary directories
             if 'save_dir' in locals() and save_dir and os.path.exists(save_dir):
                 try:
                     shutil.rmtree(save_dir)
                     print(f"[DEBUG] Cleaned up save directory: {save_dir}")
                 except Exception as e:
                     print(f"[WARN] Failed to cleanup save_dir at {save_dir}: {e}")
+            
+            if 'temp_dir' in locals() and temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"[DEBUG] Cleaned up temp directory: {temp_dir}")
+                except Exception as e:
+                    print(f"[WARN] Failed to cleanup temp_dir at {temp_dir}: {e}")
         
     except Exception as e:
         error_msg = str(e)
@@ -1059,7 +1300,6 @@ if USE_EAGER_INIT:
         
         # Additional optimizations for A6000/A40 48GB
         try:
-            import torch
             if torch.cuda.is_available():
                 # Set optimal memory allocator for A6000/A40
                 os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')

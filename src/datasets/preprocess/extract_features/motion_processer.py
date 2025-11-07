@@ -1229,7 +1229,7 @@ class MotionProcesser(object):
         return rec_score
 
     @torch.no_grad()
-    def paste_back_by_face_mask(self, result, crop_info, src_img, crop_src_image, use_laplacian=False):
+    def paste_back_by_face_mask(self, result, crop_info, src_img, crop_src_image):
         """
         paste back the result to the original image with face mask
         """
@@ -1243,7 +1243,7 @@ class MotionProcesser(object):
         for src_msk, result_msk in zip(src_msks, result_msks):
             mask = np.clip(src_msk + result_msk, 0, 1)
             masks.append(mask)
-        result = paste_back_with_face_mask(result, crop_info, src_img, masks[0], use_laplacian=use_laplacian)
+        result = paste_back_with_face_mask(result, crop_info, src_img, masks[0])
         return result
 
     def driven_by_audio(self, src_img, kp_infos, save_path, audio_path=None, smooth=False):
@@ -1534,8 +1534,8 @@ class MotionProcesser(object):
 
             if flag_stitching:
                 # TODO: the paste back procedure is slow, considering optimize it using multi-threading or GPU
-                #I_p_pstbk = self.paste_back_by_face_mask(I_p_i, source_M_c2o_lst[i], source_rgb_lst[i], img_crop_256x256, use_laplacian=True)
-                I_p_pstbk = paste_back(I_p_i, source_M_c2o_lst[i], source_rgb_lst[i], mask_ori_float, use_laplacian=True)
+                #I_p_pstbk = self.paste_back_by_face_mask(I_p_i, source_M_c2o_lst[i], source_rgb_lst[i], img_crop_256x256)
+                I_p_pstbk = paste_back(I_p_i, source_M_c2o_lst[i], source_rgb_lst[i], mask_ori_float)
                 I_p_pstbk_lst.append(I_p_pstbk)
             
         if len(I_p_pstbk_lst) > 0:

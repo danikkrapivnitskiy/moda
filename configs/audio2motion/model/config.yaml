@@ -36,9 +36,11 @@ motion_generator:
     norm_type: rms_norm  # [rms_norm|layer_norm]
     qk_norm: rms_norm    # [rms_norm|layer_norm|null]
     steps: 1000
-    emo_scale: 1.0  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions for eyebrows/expressions)
-                    # Reduced from 1.5 to 1.0 to preserve lip sync accuracy
-                    # Higher values (1.5-2.0) can interfere with audio-driven lip movements
+    # Enhanced emotion configuration (DICE-Talk integration)
+    use_enhanced_emotion: true  # Enable DICE-Talk emotion adapter (enabled by default)
+    emotion_model_path: null    # Path to emo_model.pth checkpoint (optional, auto-detected if null)
+                                 # Auto-searches: /workspace/checkpoints, /app/models_cache, checkpoints/
+    emotion_examples_dir: "examples/emo"  # Directory with emotion .npy files
 noise_scheduler:
   type: flow_matching
   sample_mode: sample
@@ -46,7 +48,8 @@ noise_scheduler:
   params:
     time_shifting: True
     num_train_timesteps: 1000
-    num_inference_steps: 10
+    num_inference_steps: 25  # Increased from 10 → better quality (similar to DICE-Talk)
+                             # More steps = better quality but slower (10=fast, 20=balanced, 25=best)
     eta: 0.2
     beta_start: 0.0001
     beta_end: 0.02

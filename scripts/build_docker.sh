@@ -7,7 +7,26 @@ echo ""
 # Configuration
 IMAGE_NAME="moda-runpod"
 DOCKER_USER="${DOCKER_USER}"
-TAG="${TAG:-latest}"
+
+# Auto-read version from runpod_config.yaml if TAG not set
+if [ -z "$TAG" ]; then
+    if [ -f "runpod_config.yaml" ]; then
+        VERSION=$(grep -A 2 "runpod:" runpod_config.yaml | grep "version:" | awk '{print $2}' | tr -d '"' | tr -d "'")
+        if [ -n "$VERSION" ]; then
+            TAG="v${VERSION}"
+            echo "📋 Auto-detected version from runpod_config.yaml: ${TAG}"
+        else
+            TAG="latest"
+            echo "⚠️  Version not found in runpod_config.yaml, using 'latest'"
+        fi
+    else
+        TAG="latest"
+        echo "⚠️  runpod_config.yaml not found, using 'latest'"
+    fi
+else
+    echo "📋 Using explicit TAG: ${TAG}"
+fi
+
 FULL_IMAGE="${DOCKER_USER}/${IMAGE_NAME}:${TAG}"
 
 # Colors
@@ -50,6 +69,10 @@ echo ""
 # Build image
 echo -e "${YELLOW}📦 Building image: ${FULL_IMAGE}${NC}"
 echo "   Docker Hub: ${DOCKER_USER}"
+echo "   Tag: ${TAG}"
+if [ "$TAG" != "latest" ]; then
+    echo -e "   ${GREEN}✓${NC} Using versioned tag (prevents unnecessary image checks)"
+fi
 echo "   This may take 15-20 minutes..."
 echo ""
 
@@ -71,11 +94,16 @@ echo "📦 Image: ${FULL_IMAGE}"
 echo "🔗 Docker Hub: https://hub.docker.com/r/${DOCKER_USER}/${IMAGE_NAME}"
 echo ""
 echo "Next steps:"
-echo "1. Update RunPod endpoint to use the new image"
+echo "1. Update RunPod endpoint to use the new image: ${FULL_IMAGE}"
 echo "2. Or create new endpoint with: ${FULL_IMAGE}"
 echo "3. Recommended GPU: RTX 4090 (24GB) or A100 (40GB/80GB)"
 echo "4. Set disk space: 100GB+"
 echo "5. Environment variables: HUGGINGFACE_USERNAME=krapiunitski"
+if [ "$TAG" != "latest" ]; then
+    echo ""
+    echo -e "${GREEN}💡 Tip:${NC} Using versioned tag (${TAG}) prevents Docker from checking"
+    echo "   registry for updates, reducing cold start time on RunPod"
+fi
 echo ""
 echo -e "${GREEN}✓${NC} Ready for deployment!"
 

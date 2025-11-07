@@ -41,6 +41,12 @@ class MotionDiffusion(nn.Module):
 
         self.device = device
 
+        # Get emotion config parameters (with defaults)
+        use_enhanced_emotion = motion_gen_params.get('use_enhanced_emotion', False)
+        emotion_model_path = motion_gen_params.get('emotion_model_path', None)
+        emotion_examples_dir = motion_gen_params.get('emotion_examples_dir', None)
+        emo_scale = motion_gen_params.get('emo_scale', 1.0)  # Emotion strength multiplier (default: 1.0)
+        
         # init motion generator
         emo_scale = motion_gen_params.get('emo_scale', 1.0)  # Emotion strength multiplier (default: 1.0)
         self.talking_head_dit = TalkingHeadDiT_models[config.model_name](
@@ -56,7 +62,10 @@ class MotionDiffusion(nn.Module):
             norm_type           = motion_gen_params.norm_type,
             qk_norm             = motion_gen_params.qk_norm,
             exp_dim             = motion_gen_params.exp_dim,
-            emo_scale           = emo_scale
+            use_enhanced_emotion = use_enhanced_emotion,
+            emotion_model_path  = emotion_model_path,
+            emotion_examples_dir = emotion_examples_dir,
+            emo_scale           = emo_scale  # Pass emo_scale to TalkingHeadDiT
         )
         self.input_dim = motion_gen_params.input_dim
         self.exp_dim = motion_gen_params.exp_dim
@@ -165,9 +174,18 @@ class MotionDiffusion(nn.Module):
             )
             audio = torch.cat([uncond_audio,audio], dim=0)
             ref_kp = torch.cat([ref_kp] * 2, dim=0)
+            # Handle emo for CFG: if tensor, concatenate unconditional version
+            # If string (path to .npy), pass as list [None, emo] for unconditional/conditional
+            # EmotionAdapter in forward() will handle both cases
             if emo is not None:
-                uncond_emo = torch.Tensor([self.talking_head_dit.num_emo_class]).long().to(self.device)
-                emo = torch.cat([uncond_emo,emo], dim=0)
+                if isinstance(emo, torch.Tensor):
+                    # Tensor: concatenate unconditional version (num_emo_class = 8 = neutral)
+                    uncond_emo = torch.Tensor([self.talking_head_dit.num_emo_class]).long().to(self.device)
+                    emo = torch.cat([uncond_emo,emo], dim=0)
+                elif isinstance(emo, str):
+                    # String (path to .npy): pass as list [None, emo] for unconditional/conditional
+                    # None will be converted to neutral (8) in forward()
+                    emo = [None, emo]
         ref_kp = ref_kp.repeat(1, audio.shape[1], 1)  # B, L, kD
 
         # prepare noisy motion
@@ -254,7 +272,9 @@ class MotionDiffusion(nn.Module):
         #init_latents = torch.randn((1, self.n_pred_frames, self.motion_dim)).to(device=self.device)
         init_latents = None
         # emotion label
-        if emo is not None:
+        # Only convert to tensor if emo is not a string (path to .npy file)
+        # String paths are handled by EmotionAdapter in forward() method
+        if emo is not None and not isinstance(emo, str):
             emo = torch.Tensor([emo]).long().to(self.device)
         start_idx = 0
         for i in range(0, n_subdivision):
