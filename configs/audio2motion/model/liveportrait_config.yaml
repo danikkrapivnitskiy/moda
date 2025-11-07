@@ -43,9 +43,10 @@ output_height: 512
 output_width: 512
 output_fps: 25
 
-# Video encoding quality defaults (overridden by runpod_config.yaml if available)
-crf: 25
-preset: "faster"
+# Video encoding quality defaults (overridden by runpod_config.yaml video_quality section if available)
+# These values are automatically replaced by runpod_config.yaml video_quality.crf and video_quality.preset
+crf: 25  # Default fallback (will be overridden by runpod_config.yaml video_quality.crf)
+preset: "faster"  # Default fallback (will be overridden by runpod_config.yaml video_quality.preset)
 
 # driving params
 flag_do_torch_compile: False

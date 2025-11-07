@@ -25,11 +25,10 @@ inference:
   batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
                   # A6000/A40 has 48GB memory → can safely handle 75 batch size
   device_id: 0  # Can be overridden via CUDA_DEVICE_ID or MODA_INFERENCE_DEVICE_ID
-  source_max_dim: 512  # Increased from 512 → better quality (25% more pixels)
-                       # Still fast enough for real-time generation
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
-  input_height: 256
-  input_width: 256
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
   output_fps: 25
   source_fps: 25
   min_video_length: 50
@@ -44,14 +43,14 @@ inference:
 motion_processor:
   batch_size: 10  # Increased from 50 → 30% faster for A6000/A40 48GB
                   # A6000/A40 has 48GB memory → can handle larger batches safely
-  warp_decode_batch_size: 20  # Increased from 75 → faster warp_decode on A6000/A40 48GB
+  warp_decode_batch_size: 15  # Increased from 75 → faster warp_decode on A6000/A40 48GB
                                # A6000/A40 can handle larger batches for warp_decode processing
-  source_max_dim: 512  # Increased from 512 → better quality (25% more pixels)
+  source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
-  input_height: 256
-  input_width: 256
-  output_height: 512  # Increased from 512 → better quality for Telegram
-  output_width: 512   # Increased from 512 → better quality for Telegram
+  input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
+  input_width: 256   # Internal processing resolution (256 = default, model trained on this size)
+  output_height: 512  # Output video resolution (512x512 for Telegram video notes)
+  output_width: 512   # Output video resolution (512x512 for Telegram video notes)
   output_fps: 25
   # Expression and motion control
   flag_relative_motion: False  # Required for expression-friendly mode to work properly

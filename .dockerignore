@@ -1,6 +1,7 @@
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Cache
 __pycache__/
@@ -9,6 +10,14 @@ __pycache__/
 *.pyd
 .Python
 *.so
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+*.egg-info/
+dist/
+build/
 
 # Virtual environments
 venv/
@@ -20,15 +29,62 @@ env/
 .idea/
 *.swp
 *.swo
+*.sublime-*
 
 # Logs
 *.log
+logs/
 
 # OS
 .DS_Store
 Thumbs.db
+*.tmp
+*.temp
 
-# Examples (keep reference images and audio for testing)
+# Documentation (not needed in runtime)
+*.md
+!README.md
+
+# Development scripts (not needed in runtime)
+scripts/
+test*.py
+*_test.py
+*_tests.py
+
+# Examples (keep emotion files, exclude large media)
 src/examples/reference_images/
 src/examples/driving_audios/
+examples/img/
+examples/wav/
+
+# Build artifacts
+*.pyc
+*.pyo
+*.pyd
+*.whl
+*.tar.gz
+
+# Temporary files
+tmp/
+temp/
+*.bak
+*.backup
+*.swp
+*.swo
+
+# Docker files (not needed inside image)
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
 

@@ -16,11 +16,12 @@ source_fps: 25
 min_video_length: 50
 max_video_length: 500
 
-# Video encoding quality defaults (overridden by runpod_config.yaml if available)
-crf: 25
-codec: "libx264"
-preset: "faster"
-output_format: "mp4"
+# Video encoding quality defaults (overridden by runpod_config.yaml video_quality section if available)
+# These values are automatically replaced by runpod_config.yaml video_quality section
+crf: 25  # Default fallback (will be overridden by runpod_config.yaml video_quality.crf)
+codec: "libx264"  # Default fallback (will be overridden by runpod_config.yaml video_quality.codec)
+preset: "faster"  # Default fallback (will be overridden by runpod_config.yaml video_quality.preset)
+output_format: "mp4"  # Default fallback (will be overridden by runpod_config.yaml video_quality.output_format)
 
 ## appearance and motion feature extractor
 appearance_feature_extractor_path:  pretrain_weights/decode/v1/first_stage/base_models/appearance_feature_extractor.pth

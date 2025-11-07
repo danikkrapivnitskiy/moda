@@ -78,8 +78,9 @@ class LiveVASAPipeline(object):
             motion_models_config = OmegaConf.load(cfg.motion_models_config)
             log(f"Load motion_models_config from {osp.realpath(cfg.motion_models_config)} done.")
             
-            # Merge emo_scale from primary_config if available
+            # Merge parameters from primary_config if available
             if primary_config is not None:
+                # Merge emo_scale from motion_processor section
                 emo_scale = primary_config.get('motion_processor', {}).get('emo_scale')
                 if emo_scale is not None:
                     if 'motion_generator' not in motion_models_config:

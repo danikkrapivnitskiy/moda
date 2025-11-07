@@ -48,7 +48,7 @@ noise_scheduler:
   params:
     time_shifting: True
     num_train_timesteps: 1000
-    num_inference_steps: 10
+    num_inference_steps: 20  # Increased from 10 → better quality (similar to DICE-Talk's 25 steps)
     eta: 0.2
     beta_start: 0.0001
     beta_end: 0.02
