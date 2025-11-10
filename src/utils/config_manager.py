@@ -207,7 +207,10 @@ class ConfigManager:
                 else:
                     # Standard merge for other sections
                     for key, value in section_config.items():
+                        old_value = nested_config.get(key, "NOT_SET")
                         nested_config[key] = value
+                        if old_value != value:
+                            print(f"[INFO] Merged {section_name}.{key}: {old_value} → {value}")
         
         # Also merge video_quality if present (flat merge for nested configs)
         # Video quality parameters are merged into both inference and motion_processor configs

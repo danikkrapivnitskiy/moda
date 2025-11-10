@@ -810,6 +810,7 @@ class MotionProcesser(object):
         # Use configurable batch size (default 20 for memory efficiency on RTX 4090 24GB)
         # Reduced from hardcoded 100 to prevent CUDA OOM errors
         warp_batch_size = getattr(self.cfg, 'warp_decode_batch_size', 20)
+        print(f"[DEBUG] warp_decode_batch_size from config: {warp_batch_size} (type: {type(warp_batch_size)})")
         
         # GPU memory-aware safety limit (prevents CUDA OOM)
         # Use GPUCompatibilityChecker for centralized batch_size recommendations
@@ -833,9 +834,10 @@ class MotionProcesser(object):
                 if total_memory_gb < 30:  # RTX 4090, RTX 3090 (24GB)
                     max_safe_batch = 25
                 elif total_memory_gb < 45:  # A6000, A40 (40-48GB)
-                    max_safe_batch = 75
+                    # Increased from 75 to 150 for better GPU utilization
+                    max_safe_batch = 150
                 else:  # A100, H100 (80GB+)
-                    max_safe_batch = 100
+                    max_safe_batch = 200
             elif torch.cuda.is_available():
                 # Fallback: check GPU if not cached
                 try:
@@ -844,9 +846,10 @@ class MotionProcesser(object):
                     if total_memory_gb < 30:
                         max_safe_batch = 25
                     elif total_memory_gb < 45:
-                        max_safe_batch = 75
+                        # Increased from 75 to 150 for better GPU utilization
+                        max_safe_batch = 150
                     else:
-                        max_safe_batch = 100
+                        max_safe_batch = 200
                 except Exception as e:
                     print(f"[WARN] Failed to check GPU memory for batch_size validation: {e}")
                     max_safe_batch = 25  # Conservative fallback
@@ -854,21 +857,26 @@ class MotionProcesser(object):
                 # No GPU available - use very conservative limit
                 max_safe_batch = 20
         
-        # Validate and adjust batch_size
+        # Validate and warn (but don't auto-reduce if below hard limit of 200)
+        # Allow values up to 200, but warn if exceeding recommended safe limit
         if max_safe_batch is not None:
-            if warp_batch_size > max_safe_batch:
+            if warp_batch_size > 200:  # Hard limit check first
                 memory_str = f" for {total_memory_gb:.1f}GB GPU" if total_memory_gb else ""
-                print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds safe limit {max_safe_batch}{memory_str}")
-                print(f"[WARN] Reducing to {max_safe_batch} to prevent CUDA OOM")
-                warp_batch_size = max_safe_batch
+                print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds hard limit 200{memory_str}")
+                print(f"[WARN] Will be capped to 200 by hard limit check below")
+            elif warp_batch_size > max_safe_batch:
+                memory_str = f" for {total_memory_gb:.1f}GB GPU" if total_memory_gb else ""
+                print(f"[INFO] warp_decode_batch_size {warp_batch_size} exceeds recommended safe limit {max_safe_batch}{memory_str}")
+                print(f"[INFO] This is allowed up to hard limit 200, but monitor for OOM errors")
             elif warp_batch_size > max_safe_batch * 0.8:  # Warn if close to limit
                 memory_str = f" for {total_memory_gb:.1f}GB GPU" if total_memory_gb else ""
-                print(f"[INFO] warp_decode_batch_size {warp_batch_size} is close to safe limit {max_safe_batch}{memory_str}")
+                print(f"[INFO] warp_decode_batch_size {warp_batch_size} is close to recommended safe limit {max_safe_batch}{memory_str}")
 
-        # Hard limit: never exceed 100 regardless of GPU (absolute safety net)
-        if warp_batch_size > 100:
-            print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds absolute maximum 100, capping to 100")
-            warp_batch_size = 100
+        # Hard limit: never exceed 200 regardless of GPU (absolute safety net)
+        # Increased from 100 to 200 for A6000 48GB with low VRAM utilization
+        if warp_batch_size > 200:
+            print(f"[WARN] warp_decode_batch_size {warp_batch_size} exceeds absolute maximum 200, capping to 200")
+            warp_batch_size = 200
         
         # Get OOM retry settings from config
         max_oom_retries = getattr(self.cfg, 'max_oom_retries', 3)
@@ -899,11 +907,30 @@ class MotionProcesser(object):
                         torch.cuda.empty_cache()
                         print(f"[WARN] CUDA OOM at batch {start}-{end}, reducing batch_size to {current_batch_size} (retry {retry_count}/{max_oom_retries})")
                     else:
+                        # If all retries exhausted or not OOM, log and re-raise
+                        if "out of memory" in str(e).lower():
+                            print(f"[ERROR] CUDA OOM: All {max_oom_retries} retries exhausted at batch {start}-{end}")
+                            print(f"[ERROR] Final batch_size: {current_batch_size}, cannot reduce further")
                         raise  # Re-raise if not OOM or max retries reached
             
             # Clear GPU cache between batches
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+        
+        # Validate that all frames were processed
+        if I_p_lst:
+            # Calculate total processed frames (each batch is a tensor with shape [batch_size, C, H, W])
+            total_processed = sum(batch.shape[0] if isinstance(batch, torch.Tensor) else len(batch) for batch in I_p_lst)
+            if total_processed != n_frames:
+                print(f"[ERROR] Frame count mismatch: expected {n_frames}, processed {total_processed}")
+                print(f"[ERROR] This indicates some batches failed to process - video will be incomplete")
+                if total_processed == 0:
+                    raise RuntimeError(f"Failed to process any frames - all batches failed with OOM")
+                # Continue with partial results but warn user
+                print(f"[WARN] Continuing with {total_processed}/{n_frames} frames - video will be shorter than expected")
+        else:
+            raise RuntimeError(f"No frames processed - I_p_lst is empty")
+        
         I_p=torch.cat(I_p_lst, dim=0) 
         I_p_i = self.parse_output(I_p)
         return I_p_i 

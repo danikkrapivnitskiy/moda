@@ -6,9 +6,9 @@ flag_force_cpu: False                # force cpu inference, WIP
 det_thresh: 0.15                      # detection threshold
 ########## source image or video cropping option ##########
 dsize: 512                           # crop size
-scale: 2.3                           # scale factor
+scale: 2.6                           # scale factor (increased from 2.3 to capture ears when head moves)
 vx_ratio: 0                          # vx ratio
-vy_ratio: -0.125                     # vy ratio +up, -down
+vy_ratio: -0.15                      # vy ratio +up, -down (increased from -0.125 to capture more area above face including ears)
 max_face_num: 0                      # max face number, 0 mean no limit
 flag_do_rot: True                    # whether to conduct the rotation when flag_do_crop is True
 animal_face_type: animal_face_9      # animal_face_68 -> 68 landmark points, animal_face_9 -> 9 landmarks

@@ -48,7 +48,7 @@ safetensors>=0.4.0
 # ML Infrastructure
 onnx==1.16.1
 onnx2torch==1.5.14
-onnxruntime-gpu==1.18.0
+onnxruntime-gpu>=1.19.0  # CUDA 12.x support (was 1.18.0 for CUDA 11.x)
 bitsandbytes==0.43.1
 
 # Specialized Libraries

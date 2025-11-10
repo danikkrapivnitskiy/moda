@@ -177,9 +177,11 @@ class GPUCompatibilityChecker:
             if total_gb < 30:  # RTX 4090, RTX 3090 (24GB)
                 return 25
             elif total_gb < 45:  # A6000, A40 (40-48GB)
-                return 75
-            else:  # A100, H100 (80GB+)
+                # Increased from 75 to 100 for better GPU utilization
+                # Users report only 4-8GB usage out of 48GB, so 100-150 is safe
                 return 100
+            else:  # A100, H100 (80GB+)
+                return 150
         else:
             # Regular inference batch size
             if total_gb < 30:  # RTX 4090, RTX 3090 (24GB)
@@ -253,9 +255,11 @@ class GPUCompatibilityChecker:
             if total_gb < 30:
                 max_safe = 25
             elif total_gb < 45:
-                max_safe = 75
+                # Increased from 75 to 150 for better GPU utilization
+                # Users report only 4-8GB usage out of 48GB, so 150 is safe
+                max_safe = 150
             else:
-                max_safe = 100
+                max_safe = 200
         else:
             if total_gb < 30:
                 max_safe = 20
@@ -277,7 +281,7 @@ class GPUCompatibilityChecker:
             )
         
         # Hard limit check (absolute maximum)
-        absolute_max = 100
+        absolute_max = 200  # Increased from 100 to 200 for high-memory GPUs
         if batch_size > absolute_max:
             errors.append(
                 f"batch_size {batch_size} exceeds absolute maximum {absolute_max}"

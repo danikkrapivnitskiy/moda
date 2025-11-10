@@ -159,7 +159,11 @@ class LiveVASAPipeline(object):
             OmegaConf.save(merged_motion_config, temp_motion_cfg_path.name)
             temp_motion_cfg_path.close()
             
+            # Debug: Log merged warp_decode_batch_size value
+            merged_warp_batch = merged_motion_config.get('warp_decode_batch_size', 'NOT_SET')
+            primary_warp_batch = primary_config.get('motion_processor', {}).get('warp_decode_batch_size', 'NOT_SET')
             log(f"Using merged motion processor config from primary config")
+            log(f"[DEBUG] warp_decode_batch_size - Primary config: {primary_warp_batch}, Merged: {merged_warp_batch}")
             self.motion_processer: MotionProcesser = MotionProcesser(
                 cfg_path=temp_motion_cfg_path.name,
                 device_id=cfg.device_id
