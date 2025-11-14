@@ -812,6 +812,26 @@ class MotionProcesser(object):
         warp_batch_size = getattr(self.cfg, 'warp_decode_batch_size', 20)
         print(f"[DEBUG] warp_decode_batch_size from config: {warp_batch_size} (type: {type(warp_batch_size)})")
         
+        # Dynamic batch size adjustment based on video length (n_frames)
+        # Longer videos require smaller batches to avoid OOM due to large tensors in memory
+        original_warp_batch_size = warp_batch_size
+        if n_frames > 0:
+            # Progressive reduction based on video length
+            # Optimized for A6000 48GB: full value up to 1000 frames, then gradual reduction
+            if n_frames >= 1500:  # Very long videos (60+ seconds)
+                # Reduce by 55% for very long videos
+                warp_batch_size = max(18, int(warp_batch_size * 0.45))
+                print(f"[INFO] Very long video ({n_frames} frames): reducing warp_decode_batch_size from {original_warp_batch_size} to {warp_batch_size}")
+            elif n_frames >= 1300:  # Long videos (52+ seconds) - critical threshold
+                # Reduce by 30% for videos 1300+ frames
+                warp_batch_size = max(44, int(warp_batch_size * 0.7))
+                print(f"[INFO] Long video ({n_frames} frames): reducing warp_decode_batch_size from {original_warp_batch_size} to {warp_batch_size}")
+            elif n_frames >= 1000:  # Medium-long videos (40+ seconds)
+                # Reduce by 15% for videos 1000-1299 frames
+                warp_batch_size = max(54, int(warp_batch_size * 0.85))
+                print(f"[INFO] Medium-long video ({n_frames} frames): reducing warp_decode_batch_size from {original_warp_batch_size} to {warp_batch_size}")
+            # Short videos (< 1000 frames): use full batch_size from config
+        
         # GPU memory-aware safety limit (prevents CUDA OOM)
         # Use GPUCompatibilityChecker for centralized batch_size recommendations
         max_safe_batch = None
@@ -883,10 +903,15 @@ class MotionProcesser(object):
         auto_adjust_on_oom = getattr(self.cfg, 'auto_adjust_batch_size_on_oom', True)
         current_batch_size = warp_batch_size
         original_batch_size = warp_batch_size
+        skipped_batches = []  # Track skipped batches for diagnostics
 
-        for start in range(0, n_frames, current_batch_size):
+        # Use while loop instead of for to handle dynamic batch_size changes
+        start = 0
+        while start < n_frames:
             end = min(start + current_batch_size, n_frames)
             retry_count = 0
+            batch_success = False
+            batch_batch_size = current_batch_size  # Track batch_size for this specific batch
             
             while retry_count <= max_oom_retries:
                 try:
@@ -895,27 +920,52 @@ class MotionProcesser(object):
                         I_p_lst.append(out['out'])
                     
                     # Success - if batch_size was reduced during retry, persist it for next batches
-                    if retry_count > 0 and current_batch_size < warp_batch_size:
-                        warp_batch_size = current_batch_size
+                    if retry_count > 0 and batch_batch_size < warp_batch_size:
+                        warp_batch_size = batch_batch_size
+                        current_batch_size = batch_batch_size
                         print(f"[INFO] Persisting reduced batch_size {warp_batch_size} for remaining batches (was {original_batch_size})")
+                    batch_success = True
                     break  # Success, exit retry loop
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower() and retry_count < max_oom_retries and auto_adjust_on_oom:
                         retry_count += 1
-                        current_batch_size = max(10, current_batch_size // 2)
-                        end = min(start + current_batch_size, n_frames)
+                        batch_batch_size = max(10, batch_batch_size // 2)
+                        end = min(start + batch_batch_size, n_frames)
                         torch.cuda.empty_cache()
-                        print(f"[WARN] CUDA OOM at batch {start}-{end}, reducing batch_size to {current_batch_size} (retry {retry_count}/{max_oom_retries})")
+                        print(f"[WARN] CUDA OOM at batch {start}-{end}, reducing batch_size to {batch_batch_size} (retry {retry_count}/{max_oom_retries})")
                     else:
-                        # If all retries exhausted or not OOM, log and re-raise
+                        # If all retries exhausted for OOM, skip batch and continue
                         if "out of memory" in str(e).lower():
                             print(f"[ERROR] CUDA OOM: All {max_oom_retries} retries exhausted at batch {start}-{end}")
-                            print(f"[ERROR] Final batch_size: {current_batch_size}, cannot reduce further")
-                        raise  # Re-raise if not OOM or max retries reached
+                            print(f"[ERROR] Final batch_size: {batch_batch_size}, cannot reduce further")
+                            print(f"[WARN] Skipping batch {start}-{end} ({end - start} frames) and continuing with remaining batches")
+                            skipped_batches.append((start, end, end - start))
+                            batch_success = False
+                            break  # Exit retry loop, continue to next batch
+                        else:
+                            # Non-OOM RuntimeError - re-raise
+                            raise
+            
+            # Move to next batch: if successful, use current_batch_size; if skipped, use warp_batch_size
+            if batch_success:
+                start += batch_batch_size
+                # Update current_batch_size if it was reduced
+                current_batch_size = batch_batch_size
+            else:
+                # Skip this batch and move to next using the persisted batch_size
+                start += (end - start)  # Move past the skipped batch
+                current_batch_size = warp_batch_size  # Reset to persisted size
             
             # Clear GPU cache between batches
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+        
+        # Log summary of skipped batches if any
+        if skipped_batches:
+            total_skipped = sum(count for _, _, count in skipped_batches)
+            print(f"[WARN] Skipped {len(skipped_batches)} batch(es) due to OOM: {total_skipped} frames total")
+            for start, end, count in skipped_batches:
+                print(f"[WARN]   - Batch {start}-{end}: {count} frames skipped")
         
         # Validate that all frames were processed
         if I_p_lst:
@@ -923,7 +973,10 @@ class MotionProcesser(object):
             total_processed = sum(batch.shape[0] if isinstance(batch, torch.Tensor) else len(batch) for batch in I_p_lst)
             if total_processed != n_frames:
                 print(f"[ERROR] Frame count mismatch: expected {n_frames}, processed {total_processed}")
-                print(f"[ERROR] This indicates some batches failed to process - video will be incomplete")
+                if skipped_batches:
+                    print(f"[ERROR] This is due to {len(skipped_batches)} skipped batch(es) - video will be incomplete")
+                else:
+                    print(f"[ERROR] This indicates some batches failed to process - video will be incomplete")
                 if total_processed == 0:
                     raise RuntimeError(f"Failed to process any frames - all batches failed with OOM")
                 # Continue with partial results but warn user

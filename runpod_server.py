@@ -781,8 +781,9 @@ def get_pipe():
                 )
                 
                 # Allow device_id override from environment (backward compatibility)
-                if os.getenv('CUDA_DEVICE_ID'):
-                    device_id_override = int(os.getenv('CUDA_DEVICE_ID'))
+                cuda_device_id = os.getenv('CUDA_DEVICE_ID')
+                if cuda_device_id:
+                    device_id_override = int(cuda_device_id)
                     inference_cfg.device_id = device_id_override
                     print(f"[INFO] Device ID overridden from CUDA_DEVICE_ID env var: {device_id_override}")
                 
@@ -991,7 +992,7 @@ def handler(event):
     if input_data.get("action") == "health":
         return {
             "status": "healthy",
-            "models_loaded": pipe is not None,
+            "models_loaded": pipe is not None,  # type: ignore[unbound]
             "timestamp": time.time()
         }
     
@@ -1016,17 +1017,17 @@ def handler(event):
             
             if is_link:
                 try:
-                    info["link_target"] = os.readlink(path)
+                    info["link_target"] = os.readlink(path)  # type: ignore[assignment]
                 except:
                     pass
             
             if exists and os.path.isdir(path):
                 try:
                     items = os.listdir(path)
-                    info["contents"] = items[:10]
-                    info["total_items"] = len(items)
+                    info["contents"] = items[:10]  # type: ignore[assignment]
+                    info["total_items"] = len(items)  # type: ignore[assignment]
                 except Exception as e:
-                    info["error"] = str(e)
+                    info["error"] = str(e)  # type: ignore[assignment]
             
             paths_info["paths"][path] = info
         
@@ -1160,11 +1161,12 @@ def handler(event):
                 print(f"   Parameters: cfg_scale={cfg_scale}, emo={emo}, smooth={smooth}")
                 
                 # Call driven_sample (returns path to generated video)
+                # emo can be int or str (path to .npy file) - driven_sample.load_emotion_features handles both
                 output_path = pipe.driven_sample(
                     image_path=img_path,
                     audio_path=aud_path,
                     cfg_scale=cfg_scale,
-                    emo=emo,
+                    emo=emo,  # type: ignore[arg-type]  # Can be int or str (path to .npy)
                     save_dir=save_dir,
                     smooth=smooth
                 )

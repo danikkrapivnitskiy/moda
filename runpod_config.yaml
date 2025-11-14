@@ -33,8 +33,8 @@ inference:
   output_fps: 25
   source_fps: 25
   min_video_length: 50
-  max_video_length: 1000  # 40 seconds at 25fps (A6000/A40 48GB limit)
-                           # Increased from 500 (20 sec) → can handle longer videos
+  max_video_length: 1500  # 60 seconds at 25fps (A6000/A40 48GB safe limit)
+                           # Increased from 1000 (40 sec) → can handle longer videos
 
 # ============================================================================
 # MOTION PROCESSOR CONFIGURATION
@@ -45,10 +45,12 @@ motion_processor:
   batch_size: 80  # Optimized for A6000 48GB (system recommends 100, max safe 150)
                    # Was using only 4GB/44.4GB with old values (50), so 100 is safe
                    # Auto OOM protection will reduce if needed
-  warp_decode_batch_size: 64  # Optimized for A6000 48GB (system recommends 100, max safe 150)
-                               # Increased to 120 for better speed: 1125 frames → 10 batches instead of 18 (44% faster)
-                               # Was using only 4GB/44.4GB with old values (64), so 120 is safe
-                               # Auto OOM protection will reduce to 60, 30, 15 if needed
+  warp_decode_batch_size: 64  # Base batch size for A6000 48GB (optimized for short videos)
+                               # Dynamically reduced for longer videos: 15% at 1000-1299 frames, 30% at 1300-1499 frames, 55% at 1500+ frames
+                               # Auto OOM protection will further reduce to 32, 16, 8 if needed
+                               # Short videos (<1000 frames): uses full 64, Medium-long (1000-1299): 54, Long (1300-1499): 44, Very long (1500+): 28
+                               # Performance: ~108s for 1000 frames (batch_size 54), ~152s for 1450 frames (batch_size 44)
+                               # Note: At 54 (1000 frames) VRAM usage is ~80%, so increasing base value above 64 would risk OOM on longer videos
   source_max_dim: 512  # Source image max dimension (512 = good balance between quality and performance)
   source_division: 2  # make sure the height and width of source image or video can be divided by this number
   input_height: 256  # Internal processing resolution (256 = default, model trained on this size)
@@ -95,7 +97,7 @@ performance:
                               # Maps to flag_do_torch_compile in liveportrait_config.yaml
   use_half_precision: False    # FP16 for faster inference on A6000/A40
                               # Maps to flag_use_half_precision in liveportrait_config.yaml
-  max_video_length: 1000      # 40 seconds max for A6000/A40 48GB
+  max_video_length: 1500      # 60 seconds max for A6000/A40 48GB
                               # Can be overridden by inference.max_video_length if set
 
 # ============================================================================

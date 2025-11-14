@@ -234,7 +234,8 @@ class EmotionAdapter(nn.Module):
             
             if isinstance(emo_data, np.ndarray):
                 # Check if numeric type that can be converted with torch.from_numpy
-                if emo_data.dtype == np.object_:
+                # emo_data is guaranteed to be np.ndarray here, so dtype is safe
+                if emo_data.dtype == np.object_:  # type: ignore[union-attr]
                     # Object array, convert via torch.tensor
                     emo_tensor = torch.tensor(np.array(emo_data, dtype=np.float32), dtype=torch.float32)
                 else:
