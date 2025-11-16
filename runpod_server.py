@@ -46,8 +46,31 @@ os.environ.setdefault('MKL_NUM_THREADS', '2')
 os.environ.setdefault('NUMEXPR_NUM_THREADS', '2')
 os.environ.setdefault('TORCH_NUM_THREADS', '2')
 
-# PyTorch CUDA memory allocator configuration will be set from runpod_config.yaml
-# via ConfigManager after primary config is loaded
+# ============================================================================
+# PyTorch CUDA memory allocator configuration
+# CRITICAL: MUST be set BEFORE importing torch, otherwise PyTorch won't read it
+# Priority: RunPod env var > .env file > config default (empty string = default allocator)
+# ============================================================================
+if 'PYTORCH_CUDA_ALLOC_CONF' in os.environ:
+    alloc_conf_value = os.environ['PYTORCH_CUDA_ALLOC_CONF']
+    # Support "default" or "none" as aliases for empty string
+    if alloc_conf_value.lower() in ('default', 'none'):
+        os.environ.pop('PYTORCH_CUDA_ALLOC_CONF', None)
+        print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF set to default allocator (removed from env)")
+    elif alloc_conf_value == '':
+        os.environ.pop('PYTORCH_CUDA_ALLOC_CONF', None)
+        print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF set to default allocator (empty string)")
+    else:
+        print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF set from environment: {alloc_conf_value}")
+else:
+    # Not set, use empty string (default allocator, no expandable_segments)
+    # This reduces memory fragmentation compared to expandable_segments:True
+    os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', '')
+    if os.environ['PYTORCH_CUDA_ALLOC_CONF'] == '':
+        os.environ.pop('PYTORCH_CUDA_ALLOC_CONF', None)
+        print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF set to default allocator (empty = no expandable_segments)")
+    else:
+        print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF set to: {os.environ['PYTORCH_CUDA_ALLOC_CONF']}")
 
 # Create cache directory if it doesn't exist
 os.makedirs('/workspace/.cache/huggingface', exist_ok=True)
@@ -82,6 +105,8 @@ import fcntl
 import shutil
 import threading
 # Import torch globally since it's used in multiple places
+# Global variable to track memory state between requests (for fragmentation detection)
+_last_memory_state = None
 # This is required for MoDA - if torch is not available, the module cannot function
 try:
     import torch  # pyright: ignore[reportMissingImports]  # PyTorch is installed in Docker container
@@ -761,7 +786,20 @@ def get_pipe():
                 primary_config = config_manager.load_primary_config()
                 
                 # Apply memory optimization environment variables
+                # NOTE: PYTORCH_CUDA_ALLOC_CONF is already set in the beginning of the file (before torch import)
                 memory_env = config_manager.get_memory_optimization_env(primary_config)
+                
+                # Log current PYTORCH_CUDA_ALLOC_CONF value (already set early, PyTorch will use it)
+                current_alloc_conf = os.environ.get('PYTORCH_CUDA_ALLOC_CONF', 'NOT SET (using default allocator)')
+                if current_alloc_conf == 'NOT SET (using default allocator)':
+                    print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF: using default allocator (no expandable_segments)")
+                else:
+                    print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF: {current_alloc_conf} (PyTorch will use this value)")
+                
+                # Remove PYTORCH_CUDA_ALLOC_CONF from memory_env to avoid overriding (already set early)
+                memory_env.pop('PYTORCH_CUDA_ALLOC_CONF', None)
+                
+                # Apply other memory optimization env vars (if any)
                 for env_key, env_value in memory_env.items():
                     os.environ[env_key] = env_value
                     print(f"[INFO] Set {env_key}={env_value} from primary config")
@@ -1116,13 +1154,38 @@ def handler(event):
                 
                 # Clear GPU cache before inference to maximize available memory
                 # Synchronize CUDA operations to ensure GPU is ready
+                global _last_memory_state
                 try:
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
                         torch.cuda.empty_cache()
                         mem_allocated = torch.cuda.memory_allocated() / 1024**3
                         mem_reserved = torch.cuda.memory_reserved() / 1024**3
-                        print(f"[INFO] GPU memory before inference: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved")
+                        fragmentation = mem_reserved - mem_allocated
+                        print(f"[INFO] GPU memory before inference: allocated={mem_allocated:.2f}GB, "
+                              f"reserved={mem_reserved:.2f}GB, fragmentation={fragmentation:.2f}GB")
+                        
+                        # Compare with previous request to detect memory growth/fragmentation
+                        if _last_memory_state is not None:
+                            reserved_diff = mem_reserved - _last_memory_state['reserved']
+                            fragmentation_diff = fragmentation - _last_memory_state['fragmentation']
+                            
+                            if reserved_diff > 2:
+                                print(f"[WARN] Memory reserved increased by {reserved_diff:.2f}GB since last request "
+                                      f"({_last_memory_state['reserved']:.2f}GB → {mem_reserved:.2f}GB) - possible fragmentation")
+                            if fragmentation_diff > 2:
+                                print(f"[WARN] Memory fragmentation increased by {fragmentation_diff:.2f}GB since last request "
+                                      f"({_last_memory_state['fragmentation']:.2f}GB → {fragmentation:.2f}GB)")
+                            if fragmentation > 5:
+                                print(f"[WARN] High memory fragmentation detected: {fragmentation:.2f}GB "
+                                      f"(reserved={mem_reserved:.2f}GB, allocated={mem_allocated:.2f}GB)")
+                        
+                        # Update last memory state
+                        _last_memory_state = {
+                            'allocated': mem_allocated,
+                            'reserved': mem_reserved,
+                            'fragmentation': fragmentation
+                        }
                 except Exception as e:
                     print(f"[WARN] Failed to clear GPU cache: {e}")
                 
@@ -1179,7 +1242,21 @@ def handler(event):
                     if torch.cuda.is_available():
                         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
                         torch.cuda.empty_cache()
+                        
+                        # Log memory state after processing
+                        mem_allocated_after = torch.cuda.memory_allocated() / 1024**3
+                        mem_reserved_after = torch.cuda.memory_reserved() / 1024**3
+                        fragmentation_after = mem_reserved_after - mem_allocated_after
+                        print(f"[INFO] GPU memory after inference: allocated={mem_allocated_after:.2f}GB, "
+                              f"reserved={mem_reserved_after:.2f}GB, fragmentation={fragmentation_after:.2f}GB")
                         print("[INFO] GPU memory cleared and synchronized")
+                        
+                        # Update last memory state for next request comparison
+                        _last_memory_state = {
+                            'allocated': mem_allocated_after,
+                            'reserved': mem_reserved_after,
+                            'fragmentation': fragmentation_after
+                        }
                 except Exception as e:
                     print(f"[WARN] Failed to clear GPU memory: {e}")
             finally:
@@ -1303,8 +1380,10 @@ if USE_EAGER_INIT:
         # Additional optimizations for A6000/A40 48GB
         try:
             if torch.cuda.is_available():
-                # Set optimal memory allocator for A6000/A40
-                os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+                # PYTORCH_CUDA_ALLOC_CONF is already set early in the file (before torch import)
+                # Log current value for debugging
+                alloc_conf_current = os.environ.get('PYTORCH_CUDA_ALLOC_CONF', 'NOT SET')
+                print(f"[INFO] PYTORCH_CUDA_ALLOC_CONF current value: {alloc_conf_current}")
                 
                 # Enable optimizations for A6000/A40
                 if hasattr(torch, 'set_float32_matmul_precision'):

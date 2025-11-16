@@ -614,6 +614,22 @@ class MotionProcesser(object):
         return delta_new
 
     def driven(self, f_s, x_s_info, s_lmk, c_s_eyes_lst, kp_infos, c_d_eyes_lst=None, c_d_lip_lst=None, smooth=False):
+        # Monitor memory before processing
+        mem_before = None
+        fragmentation_history = []  # Track fragmentation across batches for trend analysis
+        
+        if torch.cuda.is_available():
+            mem_before = {
+                'allocated': torch.cuda.memory_allocated() / (1024**3),
+                'reserved': torch.cuda.memory_reserved() / (1024**3)
+            }
+            total_memory = torch.cuda.get_device_properties(self.device_id).total_memory / (1024**3)
+            mem_before['free'] = total_memory - mem_before['reserved']
+            mem_before['fragmentation'] = mem_before['reserved'] - mem_before['allocated']
+            print(f"[MEMORY] Before processing: allocated={mem_before['allocated']:.2f}GB, "
+                  f"reserved={mem_before['reserved']:.2f}GB, free={mem_before['free']:.2f}GB, "
+                  f"fragmentation={mem_before['fragmentation']:.2f}GB")
+        
         # source kp info
         x_d_i_news=[]
         x_ss=[]
@@ -800,6 +816,7 @@ class MotionProcesser(object):
         f_s_s= f_s.expand(n_frames, *f_s.shape[1:]) 
         x_s_s = x_s.expand(n_frames, *x_s.shape[1:])  
         x_d_i_new = torch.cat(x_d_i_news, dim=0)
+        del x_d_i_news  # Delete list immediately after concatenation to free memory
         
         # Validate n_frames edge cases
         if n_frames == 0:
@@ -916,14 +933,120 @@ class MotionProcesser(object):
             while retry_count <= max_oom_retries:
                 try:
                     with torch.no_grad(), torch.autocast('cuda'):
-                        out = self.warp_decode(f_s_s[start:end], x_s_s[start:end], x_d_i_new[start:end])        
-                        I_p_lst.append(out['out'])
+                        out = self.warp_decode(f_s_s[start:end], x_s_s[start:end], x_d_i_new[start:end])
+                        # Extract output frame and explicitly delete intermediate tensors
+                        output_frame = out['out']
+                        I_p_lst.append(output_frame)
+                        
+                        # Explicitly delete unused intermediate tensors to reduce fragmentation
+                        if 'occlusion_map' in out:
+                            del out['occlusion_map']
+                        if 'deformation' in out:
+                            del out['deformation']
+                        del out  # Delete entire dict to free memory immediately
+                        
+                        # Fast cleanup immediately after warp_decode to free intermediate tensors from dense_motion
+                        # Using only empty_cache() without synchronize() for speed - this is async and very fast
+                        torch.cuda.empty_cache()
                     
                     # Success - if batch_size was reduced during retry, persist it for next batches
                     if retry_count > 0 and batch_batch_size < warp_batch_size:
                         warp_batch_size = batch_batch_size
                         current_batch_size = batch_batch_size
                         print(f"[INFO] Persisting reduced batch_size {warp_batch_size} for remaining batches (was {original_batch_size})")
+                        
+                        # Aggressive cleanup after OOM recovery
+                        if torch.cuda.is_available():
+                            print(f"[INFO] Performing aggressive cleanup after OOM recovery...")
+                            torch.cuda.synchronize()
+                            torch.cuda.empty_cache()
+                            import gc
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                            
+                            mem_after_allocated = torch.cuda.memory_allocated() / (1024**3)
+                            mem_after_reserved = torch.cuda.memory_reserved() / (1024**3)
+                            print(f"[INFO] Memory after OOM cleanup: allocated={mem_after_allocated:.2f}GB, reserved={mem_after_reserved:.2f}GB")
+                    
+                    # Monitor memory after batch processing
+                    if torch.cuda.is_available():
+                        current_batch_num = (start // warp_batch_size) + 1
+                        total_batches = (n_frames + warp_batch_size - 1) // warp_batch_size
+                        mem_allocated = torch.cuda.memory_allocated() / (1024**3)
+                        mem_reserved = torch.cuda.memory_reserved() / (1024**3)
+                        total_memory = torch.cuda.get_device_properties(self.device_id).total_memory / (1024**3)
+                        mem_free = total_memory - mem_reserved
+                        fragmentation = mem_reserved - mem_allocated
+                        
+                        # Log every 5 batches or if high fragmentation detected
+                        if current_batch_num % 5 == 0 or fragmentation > 5:
+                            print(f"[MEMORY] Batch {current_batch_num}/{total_batches} (frames {start}-{end}): "
+                                  f"allocated={mem_allocated:.2f}GB, reserved={mem_reserved:.2f}GB, "
+                                  f"free={mem_free:.2f}GB, fragmentation={fragmentation:.2f}GB")
+                        
+                        # Warn if high fragmentation
+                        if fragmentation > 5:
+                            print(f"[WARN] High memory fragmentation detected: {fragmentation:.2f}GB "
+                                  f"(reserved={mem_reserved:.2f}GB, allocated={mem_allocated:.2f}GB)")
+                        
+                        # Emergency batch_size reduction: only as last resort if fragmentation is critical (> 20GB)
+                        # This is a safety measure, but we prefer to solve fragmentation through cleanup, not batch_size reduction
+                        if fragmentation > 20:
+                            reduction_factor = 0.8  # Less aggressive - only reduce by 20% as emergency measure
+                            new_batch_size = max(16, int(warp_batch_size * reduction_factor))
+                            if new_batch_size < warp_batch_size:
+                                warp_batch_size = new_batch_size
+                                current_batch_size = warp_batch_size
+                                print(f"[WARN] Emergency batch_size reduction to {warp_batch_size} due to critical fragmentation ({fragmentation:.2f}GB)")
+                        
+                        # Aggressive cleanup if fragmentation > 10GB - this is the REAL solution, not batch_size reduction
+                        if fragmentation > 10:
+                            print(f"[INFO] Performing aggressive memory cleanup (fragmentation={fragmentation:.2f}GB)...")
+                            torch.cuda.synchronize()
+                            torch.cuda.empty_cache()
+                            import gc
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                            
+                            # Check if cleanup helped
+                            mem_after_allocated = torch.cuda.memory_allocated() / (1024**3)
+                            mem_after_reserved = torch.cuda.memory_reserved() / (1024**3)
+                            fragmentation_after = mem_after_reserved - mem_after_allocated
+                            
+                            if mem_after_reserved < mem_reserved * 0.8:  # Cleanup freed >20%
+                                print(f"[INFO] Memory cleanup successful: reserved {mem_reserved:.2f}GB → {mem_after_reserved:.2f}GB, "
+                                      f"fragmentation {fragmentation:.2f}GB → {fragmentation_after:.2f}GB")
+                            else:
+                                print(f"[WARN] Memory cleanup had limited effect: reserved {mem_reserved:.2f}GB → {mem_after_reserved:.2f}GB, "
+                                      f"fragmentation {fragmentation:.2f}GB → {fragmentation_after:.2f}GB")
+                        
+                        # Track fragmentation for trend analysis
+                        fragmentation_history.append(fragmentation)
+                        
+                        # Fragmentation-aware cleanup: cleanup after EACH batch if fragmentation > 5GB
+                        # This prevents fragmentation accumulation between batches - THIS IS THE REAL SOLUTION
+                        # Strategy: fast cleanup every batch, full cleanup more frequently to keep fragmentation low
+                        if fragmentation > 5:
+                            # Fast cleanup without synchronize() - this is async and very fast (microseconds)
+                            torch.cuda.empty_cache()
+                            # Full cleanup (with synchronize) every 2 batches instead of 3 for better memory management
+                            # This is still fast enough (synchronize is ~1-10ms) and prevents fragmentation growth
+                            if current_batch_num % 2 == 0:  # Every 2 batches instead of 3
+                                print(f"[INFO] Full memory cleanup (batch {current_batch_num}, fragmentation={fragmentation:.2f}GB)...")
+                                torch.cuda.synchronize()
+                                import gc
+                                gc.collect()
+                                torch.cuda.empty_cache()
+                            else:
+                                # Fast cleanup only - no synchronize, no gc.collect
+                                pass  # empty_cache() already called above
+                        elif fragmentation > 2:
+                            # Even for low fragmentation, do fast cleanup every 3 batches to prevent accumulation
+                            if current_batch_num % 3 == 0:
+                                torch.cuda.empty_cache()
+                    
                     batch_success = True
                     break  # Success, exit retry loop
                 except RuntimeError as e:
@@ -958,7 +1081,18 @@ class MotionProcesser(object):
             
             # Clear GPU cache between batches
             if torch.cuda.is_available():
+                torch.cuda.synchronize()  # Wait for all operations to complete
                 torch.cuda.empty_cache()
+                import gc
+                gc.collect()  # Python GC to free references
+        
+        # Clear large tensors after batch processing - they are no longer needed
+        if torch.cuda.is_available():
+            # These tensors are no longer needed after all batches are processed
+            del f_s_s
+            del x_s_s
+            del x_d_i_new
+            torch.cuda.empty_cache()
         
         # Log summary of skipped batches if any
         if skipped_batches:
@@ -984,8 +1118,57 @@ class MotionProcesser(object):
         else:
             raise RuntimeError(f"No frames processed - I_p_lst is empty")
         
-        I_p=torch.cat(I_p_lst, dim=0) 
+        I_p = torch.cat(I_p_lst, dim=0)
+        del I_p_lst  # Delete list immediately after concatenation to reduce peak memory
         I_p_i = self.parse_output(I_p)
+        del I_p  # Delete GPU tensor after conversion to numpy to free GPU memory
+        
+        # Monitor memory after processing
+        if torch.cuda.is_available() and mem_before is not None:
+            mem_after = {
+                'allocated': torch.cuda.memory_allocated() / (1024**3),
+                'reserved': torch.cuda.memory_reserved() / (1024**3)
+            }
+            total_memory = torch.cuda.get_device_properties(self.device_id).total_memory / (1024**3)
+            mem_after['free'] = total_memory - mem_after['reserved']
+            mem_after['fragmentation'] = mem_after['reserved'] - mem_after['allocated']
+            
+            print(f"[MEMORY] After processing: allocated={mem_after['allocated']:.2f}GB, "
+                  f"reserved={mem_after['reserved']:.2f}GB, free={mem_after['free']:.2f}GB, "
+                  f"fragmentation={mem_after['fragmentation']:.2f}GB")
+            
+            # Memory statistics summary
+            if fragmentation_history:
+                peak_fragmentation = max(fragmentation_history)
+                avg_fragmentation = sum(fragmentation_history) / len(fragmentation_history)
+                
+                # Determine fragmentation trend
+                if len(fragmentation_history) >= 3:
+                    recent_avg = sum(fragmentation_history[-3:]) / 3
+                    early_avg = sum(fragmentation_history[:3]) / 3
+                    trend = "increasing" if recent_avg > early_avg * 1.1 else "decreasing" if recent_avg < early_avg * 0.9 else "stable"
+                else:
+                    trend = "insufficient_data"
+                
+                print(f"[MEMORY] Statistics summary: peak_fragmentation={peak_fragmentation:.2f}GB, "
+                      f"avg_fragmentation={avg_fragmentation:.2f}GB, trend={trend}")
+                
+                if peak_fragmentation > 10:
+                    print(f"[WARN] High peak fragmentation detected: {peak_fragmentation:.2f}GB")
+                if trend == "increasing":
+                    print(f"[WARN] Fragmentation trend is increasing - memory may be accumulating")
+            
+            # Compare with before
+            reserved_diff = mem_after['reserved'] - mem_before['reserved']
+            fragmentation_diff = mem_after['fragmentation'] - mem_before['fragmentation']
+            
+            if reserved_diff > 2:
+                print(f"[WARN] Memory reserved increased by {reserved_diff:.2f}GB during processing - possible fragmentation")
+            if fragmentation_diff > 2:
+                print(f"[WARN] Memory fragmentation increased by {fragmentation_diff:.2f}GB during processing")
+            if mem_after['fragmentation'] > 5:
+                print(f"[WARN] High memory fragmentation after processing: {mem_after['fragmentation']:.2f}GB")
+        
         return I_p_i 
 
     def driven_debug(self, f_s, x_s_info, s_lmk, c_s_eyes_lst, driving_template_dct, c_d_eyes_lst=None, c_d_lip_lst=None):

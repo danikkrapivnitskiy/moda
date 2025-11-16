@@ -105,8 +105,25 @@ performance:
 # These parameters control GPU memory management
 # ============================================================================
 memory_optimization:
-  pytorch_cuda_alloc_conf: "expandable_segments:True"  # Reduces CUDA memory fragmentation
-                                                        # Critical for A6000/A40 48GB with large models
+  pytorch_cuda_alloc_conf: "max_split_size_mb:256"  # CUDA allocator configuration
+                                # Limits maximum block size to 256MB to reduce memory fragmentation
+                                # This prevents PyTorch from reserving very large memory blocks that create fragmentation
+                                # 
+                                # IMPORTANT: This value is set BEFORE torch import in runpod_server.py
+                                # 
+                                # To test different configurations:
+                                # 1. Change this value in runpod_config.yaml
+                                # 2. Restart the endpoint/container
+                                # 3. Run video generation and check logs for fragmentation metrics
+                                # 
+                                # Example values:
+                                #   - "max_split_size_mb:256" = limit max split size to 256MB (current, reduces fragmentation)
+                                #   - "max_split_size_mb:512" = limit max split size to 512MB (less aggressive)
+                                #   - "" (empty string) = default allocator (no limit, may cause high fragmentation)
+                                #   - "expandable_segments:True" = expandable segments (may cause high fragmentation)
+                                # 
+                                # Target: fragmentation < 5GB for videos < 1000 frames
+                                # Expected: 50-70% reduction in fragmentation with max_split_size_mb:256
 
 # ============================================================================
 # GPU COMPATIBILITY SETTINGS

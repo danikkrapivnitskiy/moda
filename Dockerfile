@@ -109,6 +109,10 @@ ENV OMP_NUM_THREADS=2
 ENV MKL_NUM_THREADS=2
 ENV NUMEXPR_NUM_THREADS=2
 ENV TORCH_NUM_THREADS=2
+# PyTorch CUDA memory allocator configuration
+# Empty string = default allocator (no expandable_segments, reduces fragmentation)
+# Set BEFORE any CUDA operations to ensure PyTorch reads it correctly
+ENV PYTORCH_CUDA_ALLOC_CONF=
 
 # HuggingFace configuration - these can be overridden by RunPod environment variables
 # HUGGINGFACE_USERNAME and HF_TOKEN should be set in RunPod worker settings for runtime
