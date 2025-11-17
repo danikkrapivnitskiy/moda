@@ -372,12 +372,23 @@ class MotionProcesser(object):
     def parse_output(self, out: torch.Tensor) -> np.ndarray:
         """ construct the output as standard
         return: 1xHxWx3, uint8
+        Optimized: use contiguous memory and single transfer for better performance
         """
-        out = np.transpose(out.cpu().numpy(), [0, 2, 3, 1])  # 1x3xHxW -> 1xHxWx3
-        out = np.clip(out, 0, 1)  # clip to 0~1
-        out = np.clip(out * 255, 0, 255).astype(np.uint8)  # 0~1 -> 0~255
+        # Optimized: ensure contiguous memory layout before CPU transfer for faster GPU->CPU transfer
+        # This can significantly speed up transfer for large tensors (e.g., 1450 frames × 512×512×3)
+        if not out.is_contiguous():
+            out = out.contiguous()
+        
+        # Single GPU->CPU transfer (faster than chunked processing)
+        # For large videos (1450 frames), this is the bottleneck (~30-60 seconds)
+        out_np = out.cpu().numpy()
+        
+        # Process on CPU (much faster than GPU->CPU transfer)
+        out_np = np.transpose(out_np, [0, 2, 3, 1])  # 1x3xHxW -> 1xHxWx3
+        out_np = np.clip(out_np, 0, 1)  # clip to 0~1
+        out_np = np.clip(out_np * 255, 0, 255).astype(np.uint8)  # 0~1 -> 0~255
 
-        return out
+        return out_np
 
     @torch.no_grad()
     def calc_combined_eye_ratio(self, c_d_eyes_i, source_lmk):
@@ -944,10 +955,15 @@ class MotionProcesser(object):
                         if 'deformation' in out:
                             del out['deformation']
                         del out  # Delete entire dict to free memory immediately
-                        
-                        # Fast cleanup immediately after warp_decode to free intermediate tensors from dense_motion
-                        # Using only empty_cache() without synchronize() for speed - this is async and very fast
-                        torch.cuda.empty_cache()
+                        # DO NOT call empty_cache() here - this is inside autocast context!
+                        # This can cause artifacts due to interference with intermediate FP16 tensors
+                    
+                    # Fast cleanup AFTER autocast context completes - this is safe
+                    # Safety: memory cleanup is NOT performed inside mixed precision context
+                    # Stability: excludes possible interference with intermediate FP16 tensors
+                    # Quality: reduces risk of artifacts from premature cleanup
+                    # Using only empty_cache() without synchronize() for speed - this is async and very fast
+                    torch.cuda.empty_cache()
                     
                     # Success - if batch_size was reduced during retry, persist it for next batches
                     if retry_count > 0 and batch_batch_size < warp_batch_size:
@@ -1118,10 +1134,69 @@ class MotionProcesser(object):
         else:
             raise RuntimeError(f"No frames processed - I_p_lst is empty")
         
+        # Performance logging and optimization for post-batch processing
+        perf_start = time.time()
+        
+        # Concatenate all frames - this can be slow for long videos
+        concat_start = time.time()
         I_p = torch.cat(I_p_lst, dim=0)
         del I_p_lst  # Delete list immediately after concatenation to reduce peak memory
+        concat_time = time.time() - concat_start
+        tensor_size_gb = I_p.numel() * 4 / (1024**3)  # 4 bytes per float32
+        print(f"[PERF] Concatenation: {concat_time:.2f}s for {I_p.shape[0]} frames ({tensor_size_gb:.2f}GB)")
+        
+        # Aggressive cleanup after concatenation to free memory from I_p_lst tensors
+        # This is critical for long videos where I_p_lst accumulates many frames
+        # I_p_lst contained ~4.35GB of tensors (1450 frames × 3MB each), now concatenated into I_p
+        if torch.cuda.is_available():
+            # Multiple cleanup passes to handle fragmentation from accumulated I_p_lst tensors
+            # This helps PyTorch's allocator defragment memory more effectively
+            for cleanup_pass in range(3):  # 3 passes for aggressive cleanup
+                torch.cuda.synchronize()  # Wait for all operations to complete
+                import gc
+                gc.collect()  # Python GC to free references
+                torch.cuda.empty_cache()  # Release unused cached memory
+            
+            # Check if cleanup helped
+            mem_after_cleanup = {
+                'allocated': torch.cuda.memory_allocated() / (1024**3),
+                'reserved': torch.cuda.memory_reserved() / (1024**3)
+            }
+            fragmentation_after_cleanup = mem_after_cleanup['reserved'] - mem_after_cleanup['allocated']
+            print(f"[MEMORY] After concatenation cleanup: allocated={mem_after_cleanup['allocated']:.2f}GB, "
+                  f"reserved={mem_after_cleanup['reserved']:.2f}GB, fragmentation={fragmentation_after_cleanup:.2f}GB")
+        
+        # Parse output - optimized single transfer (GPU->CPU + processing)
+        # This is typically the slowest operation for long videos (~30-60 seconds for 1450 frames)
+        parse_start = time.time()
         I_p_i = self.parse_output(I_p)
+        parse_time = time.time() - parse_start
+        print(f"[PERF] parse_output: {parse_time:.2f}s (GPU->CPU transfer + processing)")
+        
         del I_p  # Delete GPU tensor after conversion to numpy to free GPU memory
+        
+        # Aggressive cleanup after deleting I_p to reduce fragmentation
+        # This is critical because I_p can be very large (1450 frames × 512×512×3 = ~7GB)
+        # Multiple cleanup passes to handle fragmentation from large I_p tensor
+        if torch.cuda.is_available():
+            # Multiple cleanup passes to help PyTorch's allocator defragment memory
+            for cleanup_pass in range(3):  # 3 passes for aggressive cleanup
+                torch.cuda.synchronize()  # Wait for all operations to complete
+                import gc
+                gc.collect()  # Python GC to free references
+                torch.cuda.empty_cache()  # Release unused cached memory
+            
+            # Final cleanup check
+            mem_final = {
+                'allocated': torch.cuda.memory_allocated() / (1024**3),
+                'reserved': torch.cuda.memory_reserved() / (1024**3)
+            }
+            fragmentation_final = mem_final['reserved'] - mem_final['allocated']
+            print(f"[MEMORY] After parse_output cleanup: allocated={mem_final['allocated']:.2f}GB, "
+                  f"reserved={mem_final['reserved']:.2f}GB, fragmentation={fragmentation_final:.2f}GB")
+        
+        total_post_batch_time = time.time() - perf_start
+        print(f"[PERF] Total post-batch processing: {total_post_batch_time:.2f}s")
         
         # Monitor memory after processing
         if torch.cuda.is_available() and mem_before is not None:

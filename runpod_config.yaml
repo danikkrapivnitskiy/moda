@@ -64,10 +64,10 @@ motion_processor:
   driving_option: "expression-friendly"  # "expression-friendly" or "pose-friendly"
                                        # expression-friendly: emphasizes facial expressions (eyes, eyebrows, lips)
                                        # pose-friendly: emphasizes head pose movements
-  driving_multiplier: 1.2  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
+  driving_multiplier: 0.7  # Motion intensity multiplier (1.0 = neutral, 1.5 = 50% more expressive, 2.0 = very expressive)
                            # Increased from 1.0 to 1.5 for more visible facial movements
                            # Higher values make eyes, eyebrows, and lips more animated
-  emo_scale: 1.2  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
+  emo_scale: 0.5  # Emotion strength multiplier (1.0 = default, >1.0 = stronger emotions)
                   # Reduced from 1.5 to 1.2 for better balance with audio-driven expressions
                   # Higher values (1.5-2.0) make emotions more expressive, especially for eyebrow movements
                   # This scales emotion embeddings before they're integrated with audio and motion
