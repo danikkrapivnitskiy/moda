@@ -591,7 +591,7 @@ or
 - [RunPod Load Balancing Overview](https://docs.runpod.io/serverless/load-balancing/overview)
 - [Build a Load Balancing Worker](https://docs.runpod.io/serverless/load-balancing/build-a-load-balancing-worker)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [CUDA Device Busy Fix](./CUDA_DEVICE_BUSY_FIX.md)
+- [CUDA Device Busy Fix](./cuda-device-busy-fix.md)
 
 ## Summary
 

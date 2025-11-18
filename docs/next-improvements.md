@@ -80,7 +80,7 @@ def transform_spade_state_dict(state_dict, target_upscale):
 **Status**: Planned  
 **Priority**: High  
 **Estimated Effort**: 2-4 hours  
-**Related**: [EMOTION_GUIDANCE_SCALE_PLAN.md](./EMOTION_GUIDANCE_SCALE_PLAN.md)
+**Related**: [emotion-guidance-scale-plan.md](./emotion-guidance-scale-plan.md)
 
 **Problem**: Current `emo_scale` parameter causes artifacts when increased above 2.0, limiting emotion expressiveness compared to DICE-Talk.
 
@@ -269,7 +269,7 @@ def get_timestep_guidance_scale(base_scale, timestep, total_steps):
 **Status**: Documented, Not Implemented  
 **Priority**: Medium  
 **Estimated Effort**: 6-8 hours  
-**Related**: [FACE_QUALITY_IMPROVEMENT.md](./FACE_QUALITY_IMPROVEMENT.md)
+**Related**: [face-quality-improvement.md](./face-quality-improvement.md)
 
 **Problem**: Face quality can be improved with better blending techniques.
 

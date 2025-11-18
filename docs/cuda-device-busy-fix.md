@@ -221,7 +221,7 @@ No additional configuration needed. Locks are automatically enabled.
 ## Related Files
 
 - `runpod_server.py`: Main implementation (lines 91-97, 665-739, 1042-1112)
-- `CUDA_DEVICE_BUSY_FIX.md`: This documentation
+- `cuda-device-busy-fix.md`: This documentation
 
 ## Changelog
 

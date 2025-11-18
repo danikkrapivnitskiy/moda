@@ -341,7 +341,7 @@ Always-on альтернатива: $806/мес
 
 **Break-even для always-on:** 2,900+ req/day
 
-См. подробный анализ: [COST_ANALYSIS_1000_REQ.md](COST_ANALYSIS_1000_REQ.md)
+См. подробный анализ: [cost-analysis.md](cost-analysis.md)
 
 ---
 

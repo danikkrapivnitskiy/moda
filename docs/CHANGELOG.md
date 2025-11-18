@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- OOM prevention tracking mechanism to notify main service when batch size is automatically reduced
+- OOM prevention information included in successful responses (not just errors)
+- Comprehensive documentation for improvements including OOM prevention tracking (`improvements.md`)
 - Thread-safe GPU access with `gpu_lock` to prevent "CUDA device is busy" errors
 - Thread-safe pipeline initialization with `pipe_init_lock` using double-check locking pattern
 - CUDA synchronization (`torch.cuda.synchronize()`) before and after GPU operations
-- Comprehensive documentation for CUDA device busy error fix (`CUDA_DEVICE_BUSY_FIX.md`)
-- Load Balancing endpoints guide for scaling to 100+ workers (`LOAD_BALANCING_GUIDE.md`)
+- Comprehensive documentation for CUDA device busy error fix (`cuda-device-busy-fix.md`)
+- Load Balancing endpoints guide for scaling to 100+ workers (`load-balancing-guide.md`)
 - DICE-Talk emotion adapter integration for enhanced facial expressions
 - 64-code emotion control with VQ-VAE codebook and attention-based retrieval
 - Support for both emotion codes (0-8) and emotion feature files (.npy)
