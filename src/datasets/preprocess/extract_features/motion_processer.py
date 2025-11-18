@@ -372,21 +372,58 @@ class MotionProcesser(object):
     def parse_output(self, out: torch.Tensor) -> np.ndarray:
         """ construct the output as standard
         return: 1xHxWx3, uint8
-        Optimized: use contiguous memory and single transfer for better performance
+        Optimized: Process on GPU and transfer only uint8 (4x less data)
         """
-        # Optimized: ensure contiguous memory layout before CPU transfer for faster GPU->CPU transfer
-        # This can significantly speed up transfer for large tensors (e.g., 1450 frames × 512×512×3)
-        if not out.is_contiguous():
-            out = out.contiguous()
+        import time
         
-        # Single GPU->CPU transfer (faster than chunked processing)
-        # For large videos (1450 frames), this is the bottleneck (~30-60 seconds)
+        # Log tensor info
+        tensor_shape = out.shape
+        tensor_dtype = out.dtype
+        tensor_device = out.device
+        is_contig = out.is_contiguous()
+        tensor_size_gb_float32 = out.numel() * 4 / (1024**3)  # 4 bytes per float32
+        tensor_size_gb_uint8 = out.numel() * 1 / (1024**3)  # 1 byte per uint8 (after conversion)
+        print(f"[PERF] parse_output input: shape={tensor_shape}, dtype={tensor_dtype}, device={tensor_device}, "
+              f"contiguous={is_contig}, size_float32={tensor_size_gb_float32:.2f}GB, "
+              f"size_uint8={tensor_size_gb_uint8:.2f}GB (4x reduction)")
+        
+        # Process on GPU (much faster than CPU for large arrays)
+        gpu_process_start = time.time()
+        
+        # Transpose on GPU: [0, 2, 3, 1] means 1x3xHxW -> 1xHxWx3
+        transpose_start = time.time()
+        out = out.permute(0, 2, 3, 1)  # 1x3xHxW -> 1xHxWx3 (GPU operation)
+        transpose_time = time.time() - transpose_start
+        print(f"[PERF] GPU transpose: {transpose_time:.3f}s")
+        
+        # Clip to 0~1 on GPU
+        clip1_start = time.time()
+        out = torch.clamp(out, 0, 1)  # clip to 0~1 (GPU operation)
+        clip1_time = time.time() - clip1_start
+        print(f"[PERF] GPU clip1: {clip1_time:.3f}s")
+        
+        # Convert to uint8 on GPU: 0~1 -> 0~255
+        clip2_start = time.time()
+        out = torch.clamp(out * 255, 0, 255).to(torch.uint8)  # 0~1 -> 0~255, uint8 (GPU operation)
+        clip2_time = time.time() - clip2_start
+        print(f"[PERF] GPU clip2+uint8: {clip2_time:.3f}s")
+        
+        gpu_process_time = time.time() - gpu_process_start
+        print(f"[PERF] GPU processing total: {gpu_process_time:.3f}s (transpose={transpose_time:.3f}s, clip1={clip1_time:.3f}s, clip2={clip2_time:.3f}s)")
+        
+        # Transfer only uint8 to CPU (4x less data than float32)
+        cpu_start = time.time()
+        print(f"[PERF] Starting CPU transfer of uint8 ({tensor_size_gb_uint8:.2f}GB)...")
         out_np = out.cpu().numpy()
+        cpu_time = time.time() - cpu_start
+        print(f"[PERF] cpu().numpy() transfer: {cpu_time:.2f}s ({tensor_size_gb_uint8:.2f}GB uint8)")
         
-        # Process on CPU (much faster than GPU->CPU transfer)
-        out_np = np.transpose(out_np, [0, 2, 3, 1])  # 1x3xHxW -> 1xHxWx3
-        out_np = np.clip(out_np, 0, 1)  # clip to 0~1
-        out_np = np.clip(out_np * 255, 0, 255).astype(np.uint8)  # 0~1 -> 0~255
+        # Log output info
+        output_size_gb = out_np.nbytes / (1024**3)
+        total_time = gpu_process_time + cpu_time
+        print(f"[PERF] parse_output output: shape={out_np.shape}, dtype={out_np.dtype}, size={output_size_gb:.2f}GB")
+        print(f"[PERF] parse_output total: {total_time:.2f}s (GPU={gpu_process_time:.2f}s, CPU_transfer={cpu_time:.2f}s)")
+        print(f"[PERF] Optimized: Transferred {tensor_size_gb_uint8:.2f}GB uint8 instead of {tensor_size_gb_float32:.2f}GB float32 (4x less data)")
 
         return out_np
 
@@ -1145,26 +1182,15 @@ class MotionProcesser(object):
         tensor_size_gb = I_p.numel() * 4 / (1024**3)  # 4 bytes per float32
         print(f"[PERF] Concatenation: {concat_time:.2f}s for {I_p.shape[0]} frames ({tensor_size_gb:.2f}GB)")
         
-        # Aggressive cleanup after concatenation to free memory from I_p_lst tensors
-        # This is critical for long videos where I_p_lst accumulates many frames
-        # I_p_lst contained ~4.35GB of tensors (1450 frames × 3MB each), now concatenated into I_p
+        # Memory check after concatenation (no blocking cleanup before parse_output)
         if torch.cuda.is_available():
-            # Multiple cleanup passes to handle fragmentation from accumulated I_p_lst tensors
-            # This helps PyTorch's allocator defragment memory more effectively
-            for cleanup_pass in range(3):  # 3 passes for aggressive cleanup
-                torch.cuda.synchronize()  # Wait for all operations to complete
-                import gc
-                gc.collect()  # Python GC to free references
-                torch.cuda.empty_cache()  # Release unused cached memory
-            
-            # Check if cleanup helped
-            mem_after_cleanup = {
+            mem_after_concat = {
                 'allocated': torch.cuda.memory_allocated() / (1024**3),
                 'reserved': torch.cuda.memory_reserved() / (1024**3)
             }
-            fragmentation_after_cleanup = mem_after_cleanup['reserved'] - mem_after_cleanup['allocated']
-            print(f"[MEMORY] After concatenation cleanup: allocated={mem_after_cleanup['allocated']:.2f}GB, "
-                  f"reserved={mem_after_cleanup['reserved']:.2f}GB, fragmentation={fragmentation_after_cleanup:.2f}GB")
+            fragmentation_after_concat = mem_after_concat['reserved'] - mem_after_concat['allocated']
+            print(f"[MEMORY] After concatenation: allocated={mem_after_concat['allocated']:.2f}GB, "
+                  f"reserved={mem_after_concat['reserved']:.2f}GB, fragmentation={fragmentation_after_concat:.2f}GB")
         
         # Parse output - optimized single transfer (GPU->CPU + processing)
         # This is typically the slowest operation for long videos (~30-60 seconds for 1450 frames)
