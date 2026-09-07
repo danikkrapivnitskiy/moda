@@ -7,7 +7,7 @@ echo ""
 
 # Configuration
 IMAGE_NAME="moda-runpod"
-DOCKER_USER="${DOCKER_USER:-krapiunitski12}"
+DOCKER_USER="${DOCKER_USER:?Set DOCKER_USER to your Docker Hub username}"
 
 # Colors
 GREEN='\033[0;32m'

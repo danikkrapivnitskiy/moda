@@ -156,13 +156,13 @@ Added support for MoDA-specific parameters:
 ### Rebuild Docker Image:
 
 ```bash
-cd /Users/daniilkrapiunitski/Projects/tg_bot/GPU/MoDA
+cd MoDA
 
 # Set environment
-export DOCKER_USER="krapiunitski12"
-export DOCKER_TOKEN="dckr_pat_HY3T0ZBKd5dqwEzYc3aUi5HRmds"
-export HUGGINGFACE_USERNAME="krapiunitski"
-export HF_TOKEN="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"
+export DOCKER_USER="your-dockerhub-username"
+export DOCKER_TOKEN="dckr_pat_your_token_here"
+export HUGGINGFACE_USERNAME="your-huggingface-username"
+export HF_TOKEN="hf_your_token_here"
 
 # Docker login
 echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin

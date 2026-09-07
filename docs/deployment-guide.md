@@ -6,7 +6,7 @@ Complete step-by-step guide for deploying MoDA to RunPod via Docker Hub.
 
 - [x] Docker Desktop installed and running
 - [x] HuggingFace account with access token
-- [x] Docker Hub account (username: `krapiunitski12`)
+- [x] Docker Hub account (username: `your-dockerhub-username`)
 - [x] Models downloaded locally
 
 ## Step 1: Upload Models to HuggingFace
@@ -16,7 +16,7 @@ Complete step-by-step guide for deploying MoDA to RunPod via Docker Hub.
 First, run MoDA locally to download models:
 
 ```bash
-cd /Users/daniilkrapiunitski/Projects/tg_bot/GPU/MoDA
+cd MoDA
 
 # Install dependencies if needed
 pip install -r requirements.txt
@@ -49,14 +49,14 @@ huggingface-cli login
 huggingface-cli repo create moda-pretrain-weights --type model
 
 # Upload all pretrain weights
-huggingface-cli upload krapiunitski/moda-pretrain-weights ./pretrain_weights --repo-type model
+huggingface-cli upload your-huggingface-username/moda-pretrain-weights ./pretrain_weights --repo-type model
 ```
 
 **Wait for upload to complete** (~5-10 GB, may take 10-30 minutes depending on connection)
 
 ### 1.5 Verify Upload
 
-Visit: https://huggingface.co/krapiunitski/moda-pretrain-weights
+Visit: https://huggingface.co/your-huggingface-username/moda-pretrain-weights
 
 You should see:
 - `moda/` directory with checkpoint files
@@ -67,8 +67,8 @@ You should see:
 ### 2.1 Set Environment Variables
 
 ```bash
-export DOCKER_USER="krapiunitski12"
-export HUGGINGFACE_USERNAME="krapiunitski"
+export DOCKER_USER="your-dockerhub-username"
+export HUGGINGFACE_USERNAME="your-huggingface-username"
 export HF_TOKEN="hf_xxxxxxxxxxxxx"  # Your HuggingFace token
 ```
 
@@ -77,14 +77,14 @@ export HF_TOKEN="hf_xxxxxxxxxxxxx"  # Your HuggingFace token
 **IMPORTANT**: This build will take 20-30 minutes and download ~5-10 GB of models.
 
 ```bash
-cd /Users/daniilkrapiunitski/Projects/tg_bot/GPU/MoDA
+cd MoDA
 
 # Build for linux/amd64 (required for RunPod)
 docker buildx build \
   --platform linux/amd64 \
-  --build-arg HUGGINGFACE_USERNAME=krapiunitski \
+  --build-arg HUGGINGFACE_USERNAME=your-huggingface-username \
   --build-arg HF_TOKEN="${HF_TOKEN}" \
-  -t krapiunitski12/moda-runpod:latest \
+  -t your-dockerhub-username/moda-runpod:latest \
   .
 ```
 
@@ -100,13 +100,13 @@ docker buildx build \
 Check image size (should be ~15-20 GB):
 
 ```bash
-docker images krapiunitski12/moda-runpod:latest
+docker images your-dockerhub-username/moda-runpod:latest
 ```
 
 Quick test (without GPU):
 
 ```bash
-docker run --rm --platform linux/amd64 krapiunitski12/moda-runpod:latest python3 -c "
+docker run --rm --platform linux/amd64 your-dockerhub-username/moda-runpod:latest python3 -c "
 import sys
 sys.path.insert(0, '/app/src')
 from models.inference.moda_test import LiveVASAPipeline
@@ -120,21 +120,21 @@ print('✅ MoDA import successful')
 
 ```bash
 docker login
-# Username: krapiunitski12
+# Username: your-dockerhub-username
 # Password: [your Docker Hub password]
 ```
 
 ### 3.2 Push the Image
 
 ```bash
-docker push krapiunitski12/moda-runpod:latest
+docker push your-dockerhub-username/moda-runpod:latest
 ```
 
 **Wait for push to complete** (~15-20 GB, may take 20-60 minutes)
 
 ### 3.3 Verify on Docker Hub
 
-Visit: https://hub.docker.com/r/krapiunitski12/moda-runpod
+Visit: https://hub.docker.com/r/your-dockerhub-username/moda-runpod
 
 You should see:
 - Tag: `latest`
@@ -149,7 +149,7 @@ You should see:
 2. Click "Create Endpoint"
 3. Fill in details:
    - **Name**: `moda-runpod`
-   - **Container Image**: `krapiunitski12/moda-runpod:latest`
+   - **Container Image**: `your-dockerhub-username/moda-runpod:latest`
    - **Container Disk**: 100 GB (for models and temporary files)
    - **GPU Types**: RTX 4090 or A100
    - **Min Workers**: 0 (auto-scale)
@@ -157,7 +157,7 @@ You should see:
 
 4. **Environment Variables**:
    ```
-   HUGGINGFACE_USERNAME=krapiunitski
+   HUGGINGFACE_USERNAME=your-huggingface-username
    ```
    
    Note: HF_TOKEN not needed if models are pre-built in image
@@ -251,7 +251,7 @@ If needed, adjust in RunPod:
 ### Build Issues
 
 **Issue**: `HUGGINGFACE_USERNAME build argument is not set`
-**Solution**: Add `--build-arg HUGGINGFACE_USERNAME=krapiunitski`
+**Solution**: Add `--build-arg HUGGINGFACE_USERNAME=your-huggingface-username`
 
 **Issue**: `HF_TOKEN build argument is not set`
 **Solution**: Add `--build-arg HF_TOKEN="${HF_TOKEN}"`
@@ -282,18 +282,18 @@ If needed, adjust in RunPod:
 ```bash
 # Build image with models
 docker buildx build --platform linux/amd64 \
-  --build-arg HUGGINGFACE_USERNAME=krapiunitski \
+  --build-arg HUGGINGFACE_USERNAME=your-huggingface-username \
   --build-arg HF_TOKEN="${HF_TOKEN}" \
-  -t krapiunitski12/moda-runpod:latest .
+  -t your-dockerhub-username/moda-runpod:latest .
 
 # Push to Docker Hub
-docker push krapiunitski12/moda-runpod:latest
+docker push your-dockerhub-username/moda-runpod:latest
 
 # Test locally (without GPU)
-docker run --rm krapiunitski12/moda-runpod:latest python3 -c "import sys; sys.path.insert(0, '/app/src'); from models.inference.moda_test import LiveVASAPipeline; print('OK')"
+docker run --rm your-dockerhub-username/moda-runpod:latest python3 -c "import sys; sys.path.insert(0, '/app/src'); from models.inference.moda_test import LiveVASAPipeline; print('OK')"
 
 # Upload models to HuggingFace
-huggingface-cli upload krapiunitski/moda-pretrain-weights ./pretrain_weights --repo-type model
+huggingface-cli upload your-huggingface-username/moda-pretrain-weights ./pretrain_weights --repo-type model
 ```
 
 ## Next Steps

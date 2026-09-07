@@ -22,218 +22,283 @@ Fan&nbsp;Wang<sup>1,3</sup> <br><br>
 
 </div>
 <br>
+
 <div align='center'>
     <a href='https://lixinyyang.github.io/MoDA.github.io/'><img src='https://img.shields.io/badge/Project-Page-blue'></a>
     <a href='https://arxiv.org/abs/2507.03256'><img src='https://img.shields.io/badge/Paper-Arxiv-red'></a>
+    <a href='https://huggingface.co/lixinyizju/moda/'><img src='https://img.shields.io/badge/Models-Official-yellow'></a>
+    <a href='https://huggingface.co/krapiunitski/moda-pretrain-weights'><img src='https://img.shields.io/badge/Weights-Fork-orange'></a>
 </div>
 
-##  📂 Updates
+**Generate a lip-synced talking-head video from a portrait image and driving audio — with optional emotion control and a RunPod serverless handler for GPU deployment.**
 
-* [2025.08.08] 🔥 We release our inference [codes](https://github.com/lixinyyang/MoDA/) and [models](https://huggingface.co/lixinyizju/moda/).
+This fork adds a RunPod serverless handler, Docker build pipeline, and an optional emotion adapter. Local inference, Gradio (`app.py`), and YAML-driven configuration are included.
 
-## ⚙️ Installation
+## Updates
 
-**Create environment:**
+- [2025.08.08] Original inference code and [pretrained weights](https://huggingface.co/lixinyizju/moda/) (Li et al.).
+- Fork: RunPod deployment, emotion integration, pre-built Docker images — see `CHANGELOG.md`.
+
+## Model weights
+
+| Repository | Contents |
+|------------|----------|
+| [lixinyizju/moda](https://huggingface.co/lixinyizju/moda/) | Official MoDA checkpoints (paper authors) |
+| [krapiunitski/moda-pretrain-weights](https://huggingface.co/krapiunitski/moda-pretrain-weights) | Pretrain weights mirror for RunPod Docker builds |
+| [krapiunitski/moda-emotion-model](https://huggingface.co/krapiunitski/moda-emotion-model) | Lightweight `emo_model.pth` (~286 MB) for emotion adapter |
+
+Set `HUGGINGFACE_USERNAME` to your namespace when building images that download weights at build time (see `.env.example`).
+
+## Examples
+
+### Local inference (bundled samples)
 
 ```bash
-# 1. Create base environment
-conda create -n moda python=3.10 -y
-conda activate moda 
-
-# 2. Install requirements
+conda create -n moda python=3.10 -y && conda activate moda
 pip install -r requirements.txt
+sudo apt-get update && sudo apt-get install ffmpeg -y   # Linux
 
-# 3. Install ffmpeg
-sudo apt-get update  
-sudo apt-get install ffmpeg -y
+python src/models/inference/moda_test.py \
+  --image_path src/examples/reference_images/6.jpg \
+  --audio_path src/examples/driving_audios/5.wav
 ```
-## &#x1F680; Inference
 
-### Local Inference
+### Portrait + short English script (production-style)
+
+Use a clear front-facing portrait and a short spoken script as driving audio. Image guidelines (from the companion Telegram bot assets):
+
+- **Format:** PNG, JPG, JPEG, GIF, or WebP
+- **Size:** 1024×1024 square recommended
+- **Style:** face clearly visible, good lighting, photo taken from a comfortable distance
+
+Example TTS lines (2–3 sentences, ~50–100 words — suitable for real-time avatar replies):
+
+**Supportive persona**
+
+> I hear you, that sounds really hard. What do you think would help right now?
+
+**Direct persona**
+
+> Come on, you know better than that. What's really going on?
+
+Full persona rule templates live in the sibling `tg-ai-friend-bot` repo under `assets/rules/characters/` (`Ann_Therapist_public.md`, `Denis_FitnessCoach_public.md`). Generate WAV/MP3 with any TTS engine, then pass the audio file to `moda_test.py` or the RunPod handler.
+
+### RunPod request (image + audio as base64)
+
 ```python
-python src/models/inference/moda_test.py  --image_path src/examples/reference_images/6.jpg  --audio_path src/examples/driving_audios/5.wav 
+result = endpoint.run_sync({
+    "input": {
+        "image": image_b64,
+        "audio": audio_b64,
+        "cfg_scale": 1.0,
+        "emo": 8,       # 0–7 emotion codes, 8 = neutral
+        "smooth": False,
+    }
+})
 ```
 
-### Gradio Web Interface
+### Emotion codes
+
+| Code | Emotion |
+|------|---------|
+| 0 | Anger |
+| 1 | Contempt |
+| 2 | Disgust |
+| 3 | Fear |
+| 4 | Happiness |
+| 5 | Neutral |
+| 6 | Sadness |
+| 7 | Surprise |
+| 8 | None / default |
+
+See `emo_map` in `src/models/inference/moda_test.py`.
+
+## Try it (Gradio)
+
 ```bash
 python app.py
 ```
 
-## 🐳 Docker Deployment (RunPod)
+Weights download automatically on first run from [lixinyizju/moda](https://huggingface.co/lixinyizju/moda/) unless pre-baked in a Docker image.
 
-### Building Docker Image
+## How it works
 
-**Prerequisites:**
-- Docker Desktop installed and running
-- HuggingFace account with access token
-- Docker Hub account
-
-**Build Steps:**
-
-1. **Set environment variables:**
-```bash
-export DOCKER_USER="krapiunitski12"
-export HUGGINGFACE_USERNAME="krapiunitski"
-export HF_TOKEN="hf_xxxxxxxxxxxxx"  # Your HuggingFace token
+```
+Reference image + driving audio
+        │
+        ▼
+  AudioProcessor / MotionProcessor
+        │
+        ▼
+  MotionDiffusion (DiT) ──► motion latents
+        │
+        ▼
+  LivePortrait pipeline ──► talking-head video (.mp4)
+        │
+        └─ (optional) emotion adapter ──► emotion-conditioned motion
 ```
 
-2. **Build the image:**
+Key paths:
+
+| Component | Location |
+|-----------|----------|
+| Inference pipeline | `src/models/inference/moda_test.py` |
+| Diffusion model | `src/models/dit/` |
+| Emotion adapter | `src/models/emotion/` |
+| Configs | `configs/audio2motion/` |
+| RunPod handler | `runpod_server.py` |
+| RunPod tuning | `runpod_config.yaml` |
+
+Emotion codes (`emo` parameter): see [Examples](#examples) and `emo_map` in `moda_test.py`.
+
+## RunPod deployment
+
+**Prerequisites:** Docker, a HuggingFace account/token, Docker Hub account (for pushing images).
+
+1. **Configure secrets locally** (never commit `.env`):
+
 ```bash
-cd MoDA
+cp .env.example .env
+# edit: HUGGINGFACE_USERNAME, HF_TOKEN, DOCKER_USER, DOCKER_TOKEN
+```
+
+2. **Build and push:**
+
+```bash
+export DOCKER_USER="your-dockerhub-username"
+export HUGGINGFACE_USERNAME="your-huggingface-username"
+export HF_TOKEN="hf_your_token_here"
+
 ./scripts/build_docker.sh
+# or: docker buildx build --platform linux/amd64 \
+#   --build-arg HUGGINGFACE_USERNAME=$HUGGINGFACE_USERNAME \
+#   --build-arg HF_TOKEN=$HF_TOKEN \
+#   -t $DOCKER_USER/moda-runpod:latest .
 ```
 
-Or build with models pre-downloaded (recommended for production):
-```bash
-docker buildx build \
-  --platform linux/amd64 \
-  --build-arg HUGGINGFACE_USERNAME=krapiunitski \
-  --build-arg HF_TOKEN=hf_xxxxxxxxxxxxx \
-  -t krapiunitski12/moda-runpod:latest \
-  .
+3. **Create a RunPod Serverless endpoint** with image `$DOCKER_USER/moda-runpod:latest`, GPU RTX 4090 / A100 (24 GB+ VRAM), 100 GB+ disk.
+
+4. **Environment on RunPod** (if models are baked into the image, `HF_TOKEN` is optional at runtime):
+
+```
+HUGGINGFACE_USERNAME=your-huggingface-username
 ```
 
-3. **Push to Docker Hub:**
-```bash
-./scripts/quick_push.sh
-```
+5. **Call the endpoint:**
 
-Or manually:
-```bash
-docker push krapiunitski12/moda-runpod:latest
-```
-
-### RunPod Deployment
-
-1. **Create RunPod Endpoint:**
-   - Go to [RunPod Serverless](https://www.runpod.io/serverless)
-   - Create new endpoint
-   - Docker image: `krapiunitski12/moda-runpod:latest`
-   - GPU: RTX 4090 or A100 recommended
-   - Disk space: 100GB+
-
-2. **Set Environment Variables:**
-   ```
-   HUGGINGFACE_USERNAME=krapiunitski
-   ```
-   
-   (Optional, only if models not pre-built in image):
-   ```
-   HF_TOKEN=hf_xxxxxxxxxxxxx
-   ```
-
-3. **Test the endpoint:**
 ```python
-import runpod
-import base64
+import runpod, base64
 
-# Initialize RunPod
 runpod.api_key = "your-runpod-api-key"
 endpoint = runpod.Endpoint("your-endpoint-id")
 
-# Load image and audio
 with open("image.jpg", "rb") as f:
     image_b64 = base64.b64encode(f.read()).decode()
 with open("audio.wav", "rb") as f:
     audio_b64 = base64.b64encode(f.read()).decode()
 
-# Run inference
 result = endpoint.run_sync({
     "input": {
         "image": image_b64,
         "audio": audio_b64,
-        # MoDA-specific parameters (optional):
-        "cfg_scale": 1.0,   # Guidance scale (0.5-2.0)
-        "emo": 8,           # Emotion code (0-7 specific, 8=neutral)
-        "smooth": False     # Smooth motion transitions
-        # Note: output_fps and batch_size are configured in YAML files
+        "cfg_scale": 1.0,
+        "emo": 8,
+        "smooth": False,
     }
 })
 
-# Save result
 video_data = base64.b64decode(result["video"])
-with open("output.mp4", "wb") as f:
-    f.write(video_data)
+open("output.mp4", "wb").write(video_data)
 ```
 
-### CUDA Diagnostics
+CUDA diagnostics:
 
-Check if GPU and CUDA are working correctly:
 ```python
-result = endpoint.run_sync({
-    "input": {
-        "action": "check_cuda"
-    }
-})
-print(result["cuda_info"])
+endpoint.run_sync({"input": {"action": "check_cuda"}})
 ```
 
-### Model Upload to HuggingFace
+Container path checks (uses env vars — see `.env.example`):
 
-To upload MoDA models to your HuggingFace account:
-
-1. **Download original models:**
 ```bash
-# The models will be downloaded during first inference run
-python src/models/inference/moda_test.py --image_path src/examples/reference_images/6.jpg --audio_path src/examples/driving_audios/5.wav
+export RUNPOD_API_KEY=...
+export RUNPOD_ENDPOINT_ID=...
+python test_check_paths.py
 ```
 
-2. **Upload to HuggingFace:**
+### Docker scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/build_docker.sh` | Interactive build with optional push |
+| `scripts/quick_push.sh` | Test image and push |
+| `scripts/auto_build_and_push.sh` | CI-style build + push |
+| `scripts/download_emotion_model.sh` | Fetch `emo_model.pth` for local dev |
+| `scripts/clean_docker_cache.sh` | Prune build cache |
+
+Tune inference defaults in `runpod_config.yaml` (`output_fps`, `batch_size`, emotion block).
+
+### Image size & performance
+
+| Metric | Typical value |
+|--------|---------------|
+| Base image | ~8–10 GB |
+| With pre-downloaded weights | ~15–20 GB |
+| Cold start (weights in image) | ~30 s |
+| Cold start (download at runtime) | ~2–5 min |
+| Inference | ~10–30 s per clip (audio-length dependent) |
+| Recommended GPU | RTX 4090 / A6000 / A40, 24 GB+ VRAM |
+| Workers per GPU | 1 (multiple workers risk OOM) |
+
+## Emotion model (optional)
+
+Enhanced expressions use `emo_model.pth` (~286 MB). Setup:
+
 ```bash
-# Install HuggingFace CLI
-pip install huggingface-hub
-
-# Login
-huggingface-cli login
-
-# Upload pretrain weights
-huggingface-cli upload krapiunitski/moda-pretrain-weights ./pretrain_weights --repo-type model
+./scripts/download_emotion_model.sh
+# or upload your own copy to HuggingFace: scripts/upload_emotion_model.sh
 ```
 
-3. **Verify upload:**
-   - Check: https://huggingface.co/krapiunitski/moda-pretrain-weights
+See `docs/emotion-model-setup.md` and `examples/emo/` for `.npy` emotion priors.
 
-### Docker Scripts
+## Configuration
 
-Available scripts in `scripts/` directory:
+Runtime behavior is driven by YAML under `configs/audio2motion/` and `runpod_config.yaml`. The RunPod handler merges `runpod_config.yaml` over nested OmegaConf configs at startup.
 
-- `build_docker.sh` - Interactive build with push option
-- `quick_push.sh` - Quick test and push to Docker Hub
-- `deploy.sh` - Interactive deployment menu
-- `auto_build_and_push.sh` - Automated CI/CD build and push
-- `build.sh` - Simple build without options
-- `clean_docker_cache.sh` - Clean Docker build cache
+Environment variables used across scripts and `runpod_server.py`:
 
-### Configuration
+| Variable | Purpose |
+|----------|---------|
+| `HUGGINGFACE_USERNAME` | HF repo namespace for weight fallback download |
+| `HF_TOKEN` | HuggingFace token (build time or Tier-3 fallback) |
+| `DOCKER_USER` / `DOCKER_TOKEN` | Docker Hub push scripts |
+| `RUNPOD_API_KEY` / `RUNPOD_ENDPOINT_ID` | `test_check_paths.py` diagnostics |
 
-Edit `runpod_config.yaml` to customize inference parameters:
-- `output_fps` - Output video frame rate (default: 25)
-- `batch_size` - Batch size for processing (default: 100)
-- `device_id` - GPU device ID (default: 0)
+## Project layout
 
-### Image Size
+```
+MoDA/
+├── src/models/           # DiT, inference, emotion adapter
+├── src/datasets/         # audio/motion preprocessing
+├── configs/audio2motion/ # model + inference YAML
+├── runpod_server.py      # RunPod serverless entry
+├── runpod_config.yaml    # production tuning
+├── scripts/              # Docker and model utilities
+├── docs/                 # deployment and optimization guides
+└── examples/             # sample images, audio, emotion .npy
+```
 
-- Base image: ~8-10 GB
-- With pre-downloaded models: ~15-20 GB
-- Cold start time (without models): ~2-5 minutes
-- Cold start time (with models): ~30 seconds
+## Additional docs
 
-### Performance
+- `docs/deployment-guide.md` — step-by-step RunPod setup
+- `docs/load-balancing-guide.md` — scaling multiple endpoints
+- `docs/performance-optimization.md` — GPU and batch tuning
+- `CHANGELOG.md` — fork-specific changes (emotion integration, RunPod handler)
 
-- GPU: RTX 4090 recommended
-- Memory: 24GB+ VRAM
-- Processing time: ~10-30 seconds per video (depends on audio length)
-- Concurrent workers: 1 per GPU (recommended)
-## ⚖️ Disclaimer
-This project is intended for academic research, and we explicitly disclaim any responsibility for user-generated content. Users are solely liable for their actions while using the generative model. The project contributors have no legal affiliation with, nor accountability for, users' behaviors. It is imperative to use the generative model responsibly, adhering to both ethical and legal standards.
+## Disclaimer
 
-## 🙏🏻 Acknowledgements
+This project is intended for academic research. Users are solely responsible for generated content.
 
-We would like to thank the contributors to the [LivePortrait](https://github.com/KwaiVGI/LivePortrait), and [echomimic](https://github.com/antgroup/echomimic),[JoyVasa](https://github.com/jdh-algo/JoyVASA/),[Ditto](https://github.com/antgroup/ditto-talkinghead/), [Open Facevid2vid](https://github.com/zhanglonghao1992/One-Shot_Free-View_Neural_Talking_Head_Synthesis), [InsightFace](https://github.com/deepinsight/insightface), [X-Pose](https://github.com/IDEA-Research/X-Pose), [DiffPoseTalk](https://github.com/DiffPoseTalk/DiffPoseTalk), [Hallo](https://github.com/fudan-generative-vision/hallo), [wav2vec 2.0](https://github.com/facebookresearch/fairseq/tree/main/examples/wav2vec), [Chinese Speech Pretrain](https://github.com/TencentGameMate/chinese_speech_pretrain), [Q-Align](https://github.com/Q-Future/Q-Align), [Syncnet](https://github.com/joonson/syncnet_python), and [VBench](https://github.com/Vchitect/VBench) repositories, for their open research and extraordinary work.
-If we missed any open-source projects or related articles, we would like to complement the acknowledgement of this specific work immediately.
-## 📑 Citation
-
-If you use MoDA in your research, please cite:
+## Citation
 
 ```bibtex
 @article{li2025moda,
@@ -243,3 +308,7 @@ If you use MoDA in your research, please cite:
   year={2025}
 }
 ```
+
+## License
+
+Follow the license terms of the upstream MoDA release and bundled third-party components.

@@ -24,7 +24,7 @@ These files can be copied from DICE-Talk project:
 DICE-Talk/examples/emo/*.npy → MoDA/examples/emo/
 ```
 
-Or downloaded from HuggingFace repository `krapiunitski/dice-talk-checkpoints`.
+Or downloaded from HuggingFace repository `your-huggingface-username/dice-talk-checkpoints`.
 
 ## Format
 

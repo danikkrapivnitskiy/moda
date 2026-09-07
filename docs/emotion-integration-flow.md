@@ -67,7 +67,7 @@ This document describes the complete flow of how the enhanced emotion system wor
                     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Step 3: Download from HuggingFace (Optional)                │
-│   krapiunitski/dice-talk-checkpoints                         │
+│   your-huggingface-username/dice-talk-checkpoints                         │
 │   ✅ Success → Save to persistent storage                    │
 │   ❌ Failed → Continue without enhanced emotions            │
 └─────────────────────────────────────────────────────────────┘

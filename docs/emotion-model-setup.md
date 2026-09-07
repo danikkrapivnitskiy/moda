@@ -29,12 +29,12 @@ The `emo_model.pth` checkpoint contains the complete `EmotionModel` with all its
 При сборке Docker образа с правильными build arguments:
 ```bash
 docker build \
-  --build-arg HUGGINGFACE_USERNAME=krapiunitski \
-  --build-arg HF_TOKEN=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 \
+  --build-arg HUGGINGFACE_USERNAME=your-huggingface-username \
+  --build-arg HF_TOKEN=hf_your_token_here \
   -t moda:latest .
 ```
 
-Модель `emo_model.pth` автоматически скачается из `krapiunitski/dice-talk-checkpoints` и будет включена в образ.
+Модель `emo_model.pth` автоматически скачается из `your-huggingface-username/dice-talk-checkpoints` и будет включена в образ.
 
 **Путь в контейнере:** `/app/models_cache/checkpoints/DICE-Talk/emo_model.pth`
 
@@ -62,8 +62,8 @@ huggingface-cli download EEEELY/DICE-Talk \
   --local-dir checkpoints
 
 # Or from your repository (requires token)
-export HF_TOKEN="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"
-huggingface-cli download krapiunitski/dice-talk-checkpoints \
+export HF_TOKEN="hf_your_token_here"
+huggingface-cli download your-huggingface-username/dice-talk-checkpoints \
   --include "DICE-Talk/emo_model.pth" \
   --local-dir checkpoints \
   --token "$HF_TOKEN"
@@ -110,7 +110,7 @@ MoDA/
 ### For Docker/RunPod (Automatic)
 
 **Путь НЕ нужен!** Модель автоматически:
-1. Скачивается при сборке Docker образа из `krapiunitski/dice-talk-checkpoints`
+1. Скачивается при сборке Docker образа из `your-huggingface-username/dice-talk-checkpoints`
 2. Ищется в стандартных местах при запуске
 3. Скачивается из HuggingFace если не найдена (через `ensure_models_downloaded()`)
 

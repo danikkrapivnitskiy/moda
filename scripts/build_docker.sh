@@ -98,7 +98,7 @@ echo "1. Update RunPod endpoint to use the new image: ${FULL_IMAGE}"
 echo "2. Or create new endpoint with: ${FULL_IMAGE}"
 echo "3. Recommended GPU: RTX 4090 (24GB) or A100 (40GB/80GB)"
 echo "4. Set disk space: 100GB+"
-echo "5. Environment variables: HUGGINGFACE_USERNAME=krapiunitski"
+echo "5. Environment variables: HUGGINGFACE_USERNAME=<your-huggingface-username>"
 if [ "$TAG" != "latest" ]; then
     echo ""
     echo -e "${GREEN}💡 Tip:${NC} Using versioned tag (${TAG}) prevents Docker from checking"

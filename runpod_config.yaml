@@ -170,7 +170,7 @@ emotion:
                                 # - /app/models_cache/checkpoints/DICE-Talk/emo_model.pth (pre-built cache)
                                 # - checkpoints/DICE-Talk/emo_model.pth (local development)
                                 # Model is automatically downloaded during Docker build from:
-                                # krapiunitski/moda-emotion-model (lightweight, ~286 MB)
+                                # your-huggingface-username/moda-emotion-model (lightweight, ~286 MB)
   emotion_examples_dir: "examples/emo"  # Directory with DICE-Talk emotion .npy files
   default_emotion: 8  # Default emotion code if not specified or file not found (8 = neutral/None)
                        # Neutral works better as default - provides balanced expressions that work well with audio

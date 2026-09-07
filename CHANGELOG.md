@@ -100,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - .npy files: DICE-Talk emotion feature files with 5D tensor format (B, L, D1, D2, 256)
   - Base64 .npy: Encoded emotion files via RunPod API
 - Configuration: `use_enhanced_emotion: true` by default (enabled by default)
-- Docker: Emotion model downloaded from `krapiunitski/dice-talk-checkpoints` during build
+- Docker: Emotion model downloaded from `your-huggingface-username/dice-talk-checkpoints` during build
 
 ### Added
 

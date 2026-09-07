@@ -355,11 +355,11 @@ All improvements are **backward compatible** and safe for production:
 
 ```bash
 # Rebuild with all improvements
-cd /Users/daniilkrapiunitski/Projects/tg_bot/GPU/MoDA
+cd MoDA
 ./scripts/build_docker.sh
 
 # Push to Docker Hub
-docker push krapiunitski12/moda-runpod:latest
+docker push your-dockerhub-username/moda-runpod:latest
 ```
 
 ---

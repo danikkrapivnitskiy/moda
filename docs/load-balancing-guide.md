@@ -205,7 +205,7 @@ USE_EAGER_INIT=false       # For cost optimization
 
 1. **Endpoint Type:** Select "Load Balancing" (not "Queue-based")
 2. **Expose HTTP Ports:** Add port `80`
-3. **Container Image:** `krapiunitski12/moda-runpod:v1.0.0`
+3. **Container Image:** `your-dockerhub-username/moda-runpod:v1.0.0`
 4. **GPU:** RTX 4090 or A6000/A40
 5. **Min Workers:** `0` (auto-scale) or `1` (always-on)
 6. **Max Workers:** `100` (or your desired limit)
@@ -216,7 +216,7 @@ USE_EAGER_INIT=false       # For cost optimization
 
 ```yaml
 Endpoint Type: Load Balancing
-Container Image: krapiunitski12/moda-runpod:v1.0.0
+Container Image: your-dockerhub-username/moda-runpod:v1.0.0
 GPU: RTX 4090 @ $0.40/hr (cheaper region) or A6000/A40 @ $1.22/hr
 Min Workers: 0          # Auto-scale (cost-effective)
 Max Workers: 100         # Maximum concurrent workers

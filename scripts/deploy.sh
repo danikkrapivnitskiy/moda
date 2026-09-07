@@ -20,7 +20,7 @@ fi
 
 # Configuration
 IMAGE_NAME="moda-runpod"
-DOCKER_USER="${DOCKER_USER:-krapiunitski12}"
+DOCKER_USER="${DOCKER_USER:?Set DOCKER_USER to your Docker Hub username}"
 
 # Auto-read version from runpod_config.yaml if TAG not set
 if [ -z "$TAG" ]; then

@@ -37,24 +37,30 @@ fi
 # Try to download from HuggingFace
 echo "[INFO] Attempting to download from HuggingFace..."
 
+HF_REPO="${HUGGINGFACE_USERNAME:+${HUGGINGFACE_USERNAME}/moda-emotion-model}"
+
 # Download from lightweight repository (only emo_model.pth, ~286 MB)
-echo "[1/2] Downloading from krapiunitski/moda-emotion-model (lightweight, ~286 MB)..."
-if [ -n "$HF_TOKEN" ]; then
-    if huggingface-cli download krapiunitski/moda-emotion-model \
+if [ -n "$HF_REPO" ]; then
+  echo "[1/2] Downloading from ${HF_REPO} (lightweight, ~286 MB)..."
+  if [ -n "$HF_TOKEN" ]; then
+    if huggingface-cli download "$HF_REPO" \
         --include "emo_model.pth" \
         --local-dir "$CHECKPOINTS_DIR" \
         --token "$HF_TOKEN" 2>/dev/null; then
         echo "[OK] Downloaded from lightweight repository (~286 MB)"
         exit 0
     fi
-else
+  else
     echo "[INFO] HF_TOKEN not set, trying without token..."
-    if huggingface-cli download krapiunitski/moda-emotion-model \
+    if huggingface-cli download "$HF_REPO" \
         --include "emo_model.pth" \
         --local-dir "$CHECKPOINTS_DIR" 2>/dev/null; then
         echo "[OK] Downloaded from lightweight repository (public, ~286 MB)"
         exit 0
     fi
+  fi
+else
+  echo "[INFO] HUGGINGFACE_USERNAME not set, skipping private mirror download"
 fi
 
 # Option 2: Check if local DICE-Talk project exists

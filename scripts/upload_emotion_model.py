@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to upload emo_model.pth to HuggingFace repository krapiunitski/moda-emotion-model
+Script to upload emo_model.pth to HuggingFace repository {HUGGINGFACE_USERNAME}/moda-emotion-model
 """
 
 import os
@@ -13,7 +13,12 @@ project_root = script_dir.parent
 sys.path.insert(0, str(project_root))
 
 def main():
-    repo_id = "krapiunitski/moda-emotion-model"
+    hf_username = os.getenv("HUGGINGFACE_USERNAME")
+    if not hf_username:
+        print("[ERROR] HUGGINGFACE_USERNAME environment variable is not set")
+        sys.exit(1)
+
+    repo_id = f"{hf_username}/moda-emotion-model"
     emo_model_path = project_root / "emo_model.pth"
     
     print("=" * 60)

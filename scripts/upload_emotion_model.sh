@@ -1,12 +1,12 @@
 #!/bin/bash
-# Script to upload emo_model.pth to HuggingFace repository krapiunitski/moda-emotion-model
+# Script to upload emo_model.pth to HuggingFace repository ${HUGGINGFACE_USERNAME}/moda-emotion-model
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EMO_MODEL_PATH="$PROJECT_ROOT/emo_model.pth"
-REPO_ID="krapiunitski/moda-emotion-model"
+REPO_ID="${HUGGINGFACE_USERNAME:?Set HUGGINGFACE_USERNAME}/moda-emotion-model"
 
 echo "=========================================="
 echo "Uploading DICE-Talk Emotion Model to HuggingFace"
