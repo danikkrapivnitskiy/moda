@@ -51,6 +51,12 @@ Set `HUGGINGFACE_USERNAME` to your namespace when building images that download 
 
 ## Examples
 
+### Demo output
+
+Sample talking-head clip (512×512, English, generated with this pipeline):
+
+<video src="https://github.com/danikkrapivnitskiy/moda/releases/download/readme-demo/welcome-video-en-female.mp4" controls width="512" playsinline></video>
+
 ### Local inference (bundled samples)
 
 ```bash
@@ -62,26 +68,6 @@ python src/models/inference/moda_test.py \
   --image_path src/examples/reference_images/6.jpg \
   --audio_path src/examples/driving_audios/5.wav
 ```
-
-### Portrait + short English script (production-style)
-
-Use a clear front-facing portrait and a short spoken script as driving audio. Image guidelines (from the companion Telegram bot assets):
-
-- **Format:** PNG, JPG, JPEG, GIF, or WebP
-- **Size:** 1024×1024 square recommended
-- **Style:** face clearly visible, good lighting, photo taken from a comfortable distance
-
-Example TTS lines (2–3 sentences, ~50–100 words — suitable for real-time avatar replies):
-
-**Supportive persona**
-
-> I hear you, that sounds really hard. What do you think would help right now?
-
-**Direct persona**
-
-> Come on, you know better than that. What's really going on?
-
-Full persona rule templates live in the sibling `tg-ai-friend-bot` repo under `assets/rules/characters/` (`Ann_Therapist_public.md`, `Denis_FitnessCoach_public.md`). Generate WAV/MP3 with any TTS engine, then pass the audio file to `moda_test.py` or the RunPod handler.
 
 ### RunPod request (image + audio as base64)
 
